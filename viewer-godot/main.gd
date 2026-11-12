@@ -43,10 +43,36 @@ func _ready() -> void:
 	var p := Vector3(0, 0, 8)
 	origin.position = Vector3(p.x, height_at(p.x, p.z), p.z)
 	yaw = 0.0
+	_cli_camera()
 	_hud()
 	if "--test" in OS.get_cmdline_user_args():
 		print("TEST ok n=%d h(0,0)=%.2f h(30,0)=%.2f" % [n, height_at(0, 0), height_at(30, 0)])
 		get_tree().quit()
+
+
+var shot_path := ""
+var shot_frames := 0
+
+
+func _cli_camera() -> void:
+	# --cam=az_deg,el_deg,vfov_deg  (compass az clockwise from north, el negative = down); --shot=/path.png
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--cam="):
+			var v := a.substr(6).split_floats(",")
+			var az := deg_to_rad(float(meta["waypoint"]["yaw"]))
+			var f := Vector3(sin(az), 0, -cos(az))
+			var r := Vector3(-f.z, 0, f.x) * -1.0
+			r = f.cross(Vector3.UP)
+			var pp := f * 0.85 + r * 0.68
+			origin.position = Vector3(pp.x, height_at(pp.x, pp.z), pp.z)
+			cam.position.y = 1.97
+			yaw = -deg_to_rad(v[0])
+			pitch = deg_to_rad(v[1])
+			cam.fov = v[2]
+		elif a == "--norover":
+			get_node("Perseverance").visible = false
+		elif a.begins_with("--shot="):
+			shot_path = a.substr(7)
 
 
 func _hraw(ix: int, iz: int) -> float:
@@ -122,15 +148,22 @@ uniform vec3 far_albedo = vec3(0.2, 0.14, 0.1);
 uniform float patch_half = 50.0;
 varying float vdist;
 void vertex() { slope = degrees(acos(clamp(NORMAL.y, 0.0, 1.0))); wpos = VERTEX.xz; }
-float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+float h21(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
   return mix(mix(h21(i),h21(i+vec2(1,0)),f.x), mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x), f.y); }
+float peb(vec2 p, float cell, out float tone) {
+  vec2 q = p / cell; vec2 i = floor(q); vec2 f = fract(q);
+  vec2 c = vec2(h21(i + 7.1), h21(i + 3.3)) * 0.5 + 0.25;
+  float rad = 0.14 + 0.2 * h21(i + 9.7);
+  tone = h21(i + 5.5);
+  return step(0.2, h21(i + 1.9)) * smoothstep(rad, 0.0, length(f - c));
+}
 void fragment() {
   float g = texture(ortho, UV).r;
   float d = vn(wpos*6.0)*0.5 + vn(wpos*23.0)*0.3 + vn(wpos*91.0)*0.2;
   float c = clamp((g - 0.227) / 0.313, 0.0, 1.0);
-  vec3 dark = vec3(0.07, 0.056, 0.046);
-  vec3 bright = vec3(0.27, 0.185, 0.125);
+  vec3 dark = vec3(0.07, 0.052, 0.038);
+  vec3 bright = vec3(0.29, 0.186, 0.105);
   float near = 1.0 - smoothstep(25.0, 70.0, length(VERTEX));
   d = mix(vn(wpos*6.0)*0.5 + vn(wpos*23.0)*0.3 + 0.1, d, near);
   vec3 base = mix(dark, bright, c) * (0.85 + 0.3 * d);
@@ -140,6 +173,19 @@ void fragment() {
     float t = smoothstep(hazard_deg*0.6, hazard_deg*1.3, slope);
     base = mix(base, vec3(0.9,0.1,0.1), t*0.65);
   }
+  float dist = length(VERTEX);
+  float w1 = 1.0 - smoothstep(3.0, 9.0, dist);
+  float w2 = 1.0 - smoothstep(8.0, 24.0, dist);
+  float t1; float t2;
+  vec2 e = vec2(0.003, 0.0);
+  float a1 = peb(wpos, 0.022, t1);
+  float a2 = peb(wpos, 0.065, t2);
+  vec2 g1 = vec2(peb(wpos + e.xy, 0.022, t1) - peb(wpos - e.xy, 0.022, t1), peb(wpos + e.yx, 0.022, t1) - peb(wpos - e.yx, 0.022, t1)) / (2.0 * e.x);
+  vec2 g2 = vec2(peb(wpos + e.xy, 0.065, t2) - peb(wpos - e.xy, 0.065, t2), peb(wpos + e.yx, 0.065, t2) - peb(wpos - e.yx, 0.065, t2)) / (2.0 * e.x);
+  vec3 bump = vec3(-(g1.x * w1 * 0.0030 + g2.x * w2 * 0.0080), 0.0, -(g1.y * w1 * 0.0030 + g2.y * w2 * 0.0080));
+  NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(bump, 0.0)).xyz);
+  float lit = a1 * w1 * (t1 - 0.3) + a2 * w2 * (t2 - 0.3);
+  base *= 1.0 + 0.9 * lit;
   ALBEDO = base;
   ROUGHNESS = 1.0;
 }
@@ -170,21 +216,39 @@ void fragment() {
 	return mi
 
 
+func _rock_mesh(seed_: int) -> ArrayMesh:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_
+	var t := (1.0 + sqrt(5.0)) / 2.0
+	var vs: Array[Vector3] = []
+	for p in [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]]:
+		var v := Vector3(p[0], p[1], p[2]).normalized()
+		vs.append(v * rng.randf_range(0.75, 1.15))
+	var faces := [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+		[3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(-1)
+	for f in faces:
+		for k in f:
+			st.add_vertex(vs[k])
+	st.generate_normals()
+	return st.commit()
+
+
 func _rocks() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 448
-	var sm := SphereMesh.new()
-	sm.radial_segments = 8
-	sm.rings = 5
 	var mat := StandardMaterial3D.new()
 	mat.vertex_color_use_as_albedo = true
 	mat.roughness = 1.0
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = sm
-	mm.use_colors = true
-	var cols: Array[Color] = []
-	var xf: Array[Transform3D] = []
+	var variants := 6
+	var xf: Array = []
+	var cols: Array = []
+	for v in variants:
+		xf.append([] as Array[Transform3D])
+		cols.append([] as Array[Color])
+	# big rocks (power-law, up to 0.7 m), thinning with distance from the centre
 	for i in range(2500):
 		var x := rng.randf_range(-half + 1, half - 1)
 		var z := rng.randf_range(-half + 1, half - 1)
@@ -192,22 +256,40 @@ func _rocks() -> void:
 		var fade := 1.0 - smoothstep(0.35, 1.0, maxf(absf(x), absf(z)) / half)
 		if rng.randf() > (0.12 + sl / 30.0) * fade:
 			continue
-		var r := 0.08 / pow(rng.randf_range(0.02, 1.0), 0.6)
-		r = minf(r, 0.7)
-		var b := Basis.from_euler(Vector3(rng.randf() * TAU, rng.randf() * TAU, rng.randf() * TAU))
-		b = b.scaled(Vector3(r, r * rng.randf_range(0.5, 0.9), r * rng.randf_range(0.7, 1.2)))
-		xf.append(Transform3D(b, Vector3(x, height_at(x, z) + r * 0.15, z)))
-		var v := rng.randf_range(0.8, 1.2)
-		cols.append((Color(0.3, 0.22, 0.17) if rng.randf() < 0.3 else Color(0.1, 0.08, 0.07)) * v)
-	mm.instance_count = xf.size()
-	for i in xf.size():
-		mm.set_instance_transform(i, xf[i])
-		mm.set_instance_color(i, cols[i])
-	var mi := MultiMeshInstance3D.new()
-	mi.multimesh = mm
-	mi.material_override = mat
-	mi.name = "SyntheticRocks"
-	add_child(mi)
+		var r := minf(0.08 / pow(rng.randf_range(0.02, 1.0), 0.6), 0.7)
+		_add_rock(rng, x, z, r, xf, cols)
+	# pebbles and flat slabs near the walking area (real surface here is dense gravel)
+	for i in range(9000):
+		var x := rng.randf_range(-20.0, 20.0)
+		var z := rng.randf_range(-20.0, 20.0)
+		if rng.randf() > 1.0 - smoothstep(6.0, 20.0, Vector2(x, z).length()):
+			continue
+		var r := minf(0.012 / pow(rng.randf_range(0.03, 1.0), 0.55), 0.14)
+		_add_rock(rng, x, z, r, xf, cols)
+	for v in variants:
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = _rock_mesh(448 + v * 17)
+		mm.use_colors = true
+		mm.instance_count = xf[v].size()
+		for k in xf[v].size():
+			mm.set_instance_transform(k, xf[v][k])
+			mm.set_instance_color(k, cols[v][k])
+		var mi := MultiMeshInstance3D.new()
+		mi.multimesh = mm
+		mi.material_override = mat
+		mi.name = "SyntheticRocks%d" % v
+		add_child(mi)
+
+
+func _add_rock(rng: RandomNumberGenerator, x: float, z: float, r: float, xf: Array, cols: Array) -> void:
+	var b := Basis.from_euler(Vector3(rng.randf() * 0.6, rng.randf() * TAU, rng.randf() * 0.6))
+	var flat := rng.randf_range(0.3, 0.9)
+	b = b.scaled(Vector3(r * rng.randf_range(0.8, 1.4), r * flat, r * rng.randf_range(0.6, 1.2)))
+	var v := rng.randi() % xf.size()
+	xf[v].append(Transform3D(b, Vector3(x, height_at(x, z) + r * flat * 0.25, z)))
+	var k := rng.randf_range(0.85, 1.2)
+	cols[v].append((Color(0.34, 0.225, 0.155) if rng.randf() < 0.65 else Color(0.12, 0.085, 0.065)) * k)
 
 
 func _route() -> void:
@@ -305,6 +387,11 @@ func _unhandled_input(e: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	if shot_path != "":
+		shot_frames += 1
+		if shot_frames == 40:
+			get_viewport().get_texture().get_image().save_png(shot_path)
+			get_tree().quit()
 	if in_xr:
 		var fwd := -cam.global_transform.basis.z
 		fwd.y = 0.0
@@ -371,7 +458,7 @@ shader_type spatial;
 uniform vec3 albedo = vec3(0.2, 0.14, 0.1);
 uniform float planet_r = 3396190.0;
 varying vec2 wpos;
-float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+float h21(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
   return mix(mix(h21(i),h21(i+vec2(1,0)),f.x), mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x), f.y); }
 void vertex() {
