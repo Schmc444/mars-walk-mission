@@ -31,6 +31,7 @@ func _ready() -> void:
 	heights = f.get_buffer(f.get_length()).to_float32_array()
 	_environment()
 	add_child(_terrain())
+	_farfield()
 	_rocks()
 	_route()
 	_setup_player()
@@ -82,8 +83,8 @@ func _environment() -> void:
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.82, 0.6, 0.45)
 	env.fog_density = 0.0
-	env.fog_depth_begin = 40.0
-	env.fog_depth_end = 140.0
+	env.fog_depth_begin = 250.0
+	env.fog_depth_end = 3200.0
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	var we := WorldEnvironment.new()
 	we.environment = env
@@ -250,7 +251,7 @@ func _setup_player() -> void:
 	add_child(origin)
 	cam = XRCamera3D.new()
 	cam.position.y = 1.6
-	cam.far = 400.0
+	cam.far = 6000.0
 	origin.add_child(cam)
 	left = XRController3D.new()
 	left.tracker = &"left_hand"
@@ -319,3 +320,37 @@ func _process(delta: float) -> void:
 	p.y = height_at(p.x, p.z)
 	origin.position = p
 	hud.text = "Mars Route Walker · sol %d · pendiente aquí %.1f° · H: capa de peligro %s\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm · rocas SINTÉTICAS (ilustrativas)" % [meta["waypoint"]["sol"], slope_deg(p.x, p.z), "ON" if hazard_on else "off"]
+
+
+func _farfield() -> void:
+	var fm: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(PATCH + "farfield.json"))
+	var fn := int(fm["samples"])
+	var fstep := float(fm["step_m"])
+	var f := FileAccess.open(PATCH + "farfield.f32", FileAccess.READ)
+	var fh := f.get_buffer(f.get_length()).to_float32_array()
+	var fhalf := float(fm["half_m"])
+	var sub := 3
+	var cs := fstep * sub
+	var cells := (fn - 1) / sub
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for iz in range(cells):
+		for ix in range(cells):
+			var x0 := -fhalf + ix * cs
+			var z0 := -fhalf + iz * cs
+			if x0 + cs > -half - 2.0 and x0 < half + 2.0 and z0 + cs > -half - 2.0 and z0 < half + 2.0:
+				continue
+			var vs := [Vector2i(ix, iz), Vector2i(ix + 1, iz), Vector2i(ix, iz + 1), Vector2i(ix + 1, iz + 1)]
+			for k in [0, 1, 2, 1, 3, 2]:
+				var v: Vector2i = vs[k]
+				var hh := fh[(v.y * sub) * fn + v.x * sub] - 0.6
+				st.add_vertex(Vector3(-fhalf + v.x * cs, hh, -fhalf + v.y * cs))
+	st.generate_normals()
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.5, 0.36, 0.27)
+	mat.roughness = 1.0
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	mi.material_override = mat
+	mi.name = "FarField"
+	add_child(mi)
