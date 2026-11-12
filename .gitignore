@@ -1,0 +1,5 @@
+.godot/
+*.tif
+mars_data/
+__pycache__/
+venv/
