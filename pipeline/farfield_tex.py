@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image
 from bigtiff_range import RemoteBigTiff
 
-DATA = os.environ.get("MARS_DATA", "/home/aschie/dimensional_depot/Archieves/NASA_SpaceApps_2026/mars_data/")
+DATA = os.environ.get("MARS_DATA", "../mars_data/")
 CTX = "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/mars2020_trn/CTX/JEZ_ctx_B_soc_008_orthoMosaic_6m_Eqc_latTs0_lon0.tif"
 R = 3396190.0
 sol, site, drive = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])

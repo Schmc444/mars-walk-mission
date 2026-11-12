@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
 from bigtiff_range import RemoteBigTiff
 
-DATA = os.environ.get("MARS_DATA")
+DATA = os.environ.get("MARS_DATA", "../mars_data/")
 ORTHO = "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/mars2020_trn/HiRISE/JEZ_hirise_soc_006_orthoMosaic_25cm_Eqc_latTs0_lon0_first.tif"
 R = 3396190.0
 sol, site, drive = map(int, sys.argv[1:4])

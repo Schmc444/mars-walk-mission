@@ -1,7 +1,7 @@
-import json, math, sys
+import json, math, os, sys
 import numpy as np
 from bigtiff_range import RemoteBigTiff
-DATA = "/home/aschie/dimensional_depot/Archieves/NASA_SpaceApps_2026/mars_data/"
+DATA = os.environ.get("MARS_DATA", "../mars_data/")
 R = 3396190.0
 dtm = RemoteBigTiff(DATA + "JEZ_hirise_soc_006_DTM_MOLAtopography_DeltaGeoid_1m_Eqc_latTs0_lon0_blend40.tif")
 w = json.load(open(DATA + "M20_waypoints.json"))["features"]

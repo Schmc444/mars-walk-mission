@@ -6,7 +6,7 @@ from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 R = 3396190.0
 sol, site, drive = map(int, sys.argv[1:4]); tif, out = sys.argv[4], sys.argv[5]
-DATA = os.environ.get("MARS_DATA")
+DATA = os.environ.get("MARS_DATA", "../mars_data/")
 wp = [f for f in json.load(open(DATA + "M20_waypoints.json"))["features"]
       if f["properties"]["sol"] == sol and f["properties"]["site"] == site and f["properties"]["drive"] == drive][0]["properties"]
 lon0, lat0 = wp["lon"], wp["lat"]

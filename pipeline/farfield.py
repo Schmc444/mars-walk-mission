@@ -4,7 +4,7 @@ import json, math, os, sys
 import numpy as np
 from bigtiff_range import RemoteBigTiff
 
-DATA = os.environ.get("MARS_DATA", "/home/aschie/dimensional_depot/Archieves/NASA_SpaceApps_2026/mars_data/")
+DATA = os.environ.get("MARS_DATA", "../mars_data/")
 DTM = DATA + "JEZ_hirise_soc_006_DTM_MOLAtopography_DeltaGeoid_1m_Eqc_latTs0_lon0_blend40.tif"
 R = 3396190.0
 sol, site, drive = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
