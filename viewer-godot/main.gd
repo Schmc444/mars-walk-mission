@@ -9,6 +9,7 @@ const FAR_ALBEDO := Color(0.2, 0.14, 0.1)
 const ROVER_MODEL := "res://models/perseverance.glbd"
 const HAZARD_DEG := 15.0
 
+var scene: Dictionary # scene.json (see docs/SCENE_FORMAT.md)
 var meta: Dictionary
 var n := 101
 var half := 50.0
@@ -27,14 +28,23 @@ var hud: Label
 var sun_dir_xz := Vector2(-0.64, -0.76)
 
 
+func layer_entry(id: String) -> Dictionary:
+	for e in scene["layers"]:
+		if e["id"] == id:
+			return e
+	return {}
+
+
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--patch="):
 			PATCH = "res://" + a.substr(8) + "/"
-	meta = JSON.parse_string(FileAccess.get_file_as_string(PATCH + "meta.json"))
+	scene = JSON.parse_string(FileAccess.get_file_as_string(PATCH + "scene.json"))
+	var terr := layer_entry("terrain")
+	meta = {"samples": terr["samples"], "waypoint": scene["origin"]}
 	n = int(meta["samples"])
 	half = (n - 1) * 0.5
-	var f := FileAccess.open(PATCH + "heightmap.f32", FileAccess.READ)
+	var f := FileAccess.open(PATCH + terr["file"], FileAccess.READ)
 	heights = f.get_buffer(f.get_length()).to_float32_array()
 	_environment()
 	add_child(_terrain())
@@ -137,9 +147,10 @@ func _environment() -> void:
 
 
 func _terrain() -> MeshInstance3D:
-	var img := Image.load_from_file(ProjectSettings.globalize_path(PATCH + "ortho.png"))
+	var ortho_file: String = layer_entry("ortho")["file"]
+	var img := Image.load_from_file(ProjectSettings.globalize_path(PATCH + ortho_file))
 	if img == null:
-		img = Image.load_from_file(PATCH + "ortho.png")
+		img = Image.load_from_file(PATCH + ortho_file)
 	img.generate_mipmaps()
 	var tex := ImageTexture.create_from_image(img)
 	var sh := Shader.new()
@@ -455,7 +466,7 @@ func _add_rock(rng: RandomNumberGenerator, x: float, z: float, r: float, xf: Arr
 
 
 func _route() -> void:
-	var segs: Array = JSON.parse_string(FileAccess.get_file_as_string(PATCH + "route_local.json"))
+	var segs: Array = JSON.parse_string(FileAccess.get_file_as_string(PATCH + layer_entry("route")["file"]))
 	var bm := BoxMesh.new()
 	bm.size = Vector3(0.18, 0.02, 0.18)
 	var mat := StandardMaterial3D.new()
@@ -585,17 +596,17 @@ func _process(delta: float) -> void:
 
 
 func _farfield() -> void:
-	_farring("farfield", 3, 2.5, 8.0 - half)
-	_farring("farfield6", 3, 3.0, 2990.0)
-	if FileAccess.file_exists(PATCH + "farfield80.f32"):
-		_farring("farfield80", 2, 6.0, 5990.0)
+	for e in scene["layers"]:
+		if e.get("role", "") == "ring":
+			var v: Dictionary = e.get("view", {})
+			_farring(e, int(v.get("subsample", 3)), float(v.get("lower_m", 3.0)), float(e.get("inner_skip_m", 0.0)))
 
 
-func _farring(base: String, sub: int, lower: float, skip_half: float) -> void:
-	var fm: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(PATCH + base + ".json"))
+func _farring(fm: Dictionary, sub: int, lower: float, skip_half: float) -> void:
+	var base: String = fm["id"]
 	var fn := int(fm["samples"])
 	var fstep := float(fm["step_m"])
-	var f := FileAccess.open(PATCH + base + ".f32", FileAccess.READ)
+	var f := FileAccess.open(PATCH + fm["file"], FileAccess.READ)
 	var fh := f.get_buffer(f.get_length()).to_float32_array()
 	var fhalf := float(fm["half_m"])
 	var cs := fstep * sub
@@ -646,8 +657,9 @@ void fragment() {
 	mat.shader = sh
 	mat.set_shader_parameter("albedo", Vector3(FAR_ALBEDO.r, FAR_ALBEDO.g, FAR_ALBEDO.b))
 	mat.set_shader_parameter("planet_r", MARS_R)
-	var tp := ProjectSettings.globalize_path(PATCH + base + "_tex.png")
-	if FileAccess.file_exists(PATCH + base + "_tex.png"):
+	var tex_file: String = fm.get("texture", "")
+	var tp := ProjectSettings.globalize_path(PATCH + tex_file)
+	if tex_file != "" and FileAccess.file_exists(PATCH + tex_file):
 		var timg := Image.load_from_file(tp)
 		if timg != null:
 			timg.convert(Image.FORMAT_L8)

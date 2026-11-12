@@ -1,0 +1,79 @@
+{
+ "schema": 1,
+ "id": "m20_sol448_site25_drive446",
+ "generator": {
+  "name": "marswalk",
+  "version": "0.1.0",
+  "built_utc": "2026-11-12T18:35:55Z"
+ },
+ "body": {
+  "name": "Mars",
+  "radius_m": 3396190.0
+ },
+ "axes": "x east, z south, y up, ground metres, origin = waypoint; raster row 0 = north, grids centred on origin",
+ "origin": {
+  "sol": 448,
+  "site": 25,
+  "drive": 446,
+  "lon": 77.40633801,
+  "lat": 18.45744513,
+  "roll": -4.292789991,
+  "pitch": -11.54616854,
+  "yaw": -170.3399699,
+  "elevation_m": -2535.81396484375
+ },
+ "layers": [
+  {
+   "id": "terrain",
+   "title": "Terrain (1 m)",
+   "kind": "elevation",
+   "file": "heightmap.f32",
+   "dtype": "f32",
+   "samples": 101,
+   "step_m": 1.0,
+   "half_m": 50.0,
+   "unit": "m",
+   "relative_to": "origin elevation",
+   "legacy": true
+  },
+  {
+   "id": "ortho",
+   "title": "Orbital photo (25 cm)",
+   "kind": "image",
+   "file": "ortho.png",
+   "samples": 404,
+   "step_m": 0.25,
+   "half_m": 50.0,
+   "legacy": true
+  },
+  {
+   "id": "route",
+   "title": "Driven route",
+   "kind": "polylines",
+   "file": "route_local.json",
+   "frame": "ground_m",
+   "legacy": true
+  },
+  {
+   "id": "ring_3km",
+   "title": "ring_3km",
+   "kind": "elevation",
+   "role": "ring",
+   "file": "farfield.f32",
+   "dtype": "f32",
+   "samples": 1000,
+   "step_m": 6,
+   "half_m": 3000,
+   "unit": "m",
+   "relative_to": "origin elevation",
+   "min": -56.78662109375,
+   "max": 149.884765625,
+   "inner_skip_m": 42.0,
+   "view": {
+    "subsample": 3,
+    "lower_m": 2.5
+   },
+   "legacy": true
+  }
+ ]
+}

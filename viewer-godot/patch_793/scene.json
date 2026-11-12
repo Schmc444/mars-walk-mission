@@ -1,0 +1,124 @@
+{
+ "schema": 1,
+ "id": "m20_sol793_site39_drive1036",
+ "generator": {
+  "name": "marswalk",
+  "version": "0.1.0",
+  "built_utc": "2026-11-12T18:33:18Z"
+ },
+ "body": {
+  "name": "Mars",
+  "radius_m": 3396190.0
+ },
+ "axes": "x east, z south, y up, ground metres, origin = waypoint; raster row 0 = north, grids centred on origin",
+ "origin": {
+  "sol": 793,
+  "site": 39,
+  "drive": 1036,
+  "lon": 77.36867979,
+  "lat": 18.48255996,
+  "roll": -4.524983108,
+  "pitch": 12.84653621,
+  "yaw": -108.0271205,
+  "elevation_m": -2421.81298828125
+ },
+ "layers": [
+  {
+   "id": "terrain",
+   "title": "Terrain (1 m)",
+   "kind": "elevation",
+   "file": "heightmap.f32",
+   "dtype": "f32",
+   "samples": 91,
+   "step_m": 1.0,
+   "half_m": 45.0,
+   "unit": "m",
+   "relative_to": "origin elevation",
+   "legacy": true
+  },
+  {
+   "id": "ortho",
+   "title": "Orbital photo (25 cm)",
+   "kind": "image",
+   "file": "ortho.png",
+   "samples": 364,
+   "step_m": 0.25,
+   "half_m": 45.0,
+   "legacy": true
+  },
+  {
+   "id": "route",
+   "title": "Driven route",
+   "kind": "polylines",
+   "file": "route_local.json",
+   "frame": "ground_m",
+   "legacy": true
+  },
+  {
+   "id": "ring_3km",
+   "title": "ring_3km",
+   "kind": "elevation",
+   "role": "ring",
+   "file": "farfield.f32",
+   "dtype": "f32",
+   "samples": 1000,
+   "step_m": 6,
+   "half_m": 3000,
+   "unit": "m",
+   "relative_to": "origin elevation",
+   "min": -136.357666015625,
+   "max": 180.579345703125,
+   "inner_skip_m": 37.0,
+   "view": {
+    "subsample": 3,
+    "lower_m": 2.5
+   },
+   "legacy": true,
+   "texture": "farfield_tex.png"
+  },
+  {
+   "id": "ring_6km",
+   "title": "ring_6km",
+   "kind": "elevation",
+   "role": "ring",
+   "file": "farfield6.f32",
+   "dtype": "f32",
+   "samples": 1000,
+   "step_m": 12,
+   "half_m": 6000,
+   "unit": "m",
+   "relative_to": "origin elevation",
+   "min": -189.651611328125,
+   "max": 736.86767578125,
+   "inner_skip_m": 2990.0,
+   "view": {
+    "subsample": 3,
+    "lower_m": 3.0
+   },
+   "legacy": true,
+   "texture": "farfield6_tex.png"
+  },
+  {
+   "id": "ring_80km",
+   "title": "ring_80km",
+   "kind": "elevation",
+   "role": "ring",
+   "file": "farfield80.f32",
+   "dtype": "f32",
+   "samples": 1001,
+   "step_m": 160.0,
+   "half_m": 80000.0,
+   "unit": "m",
+   "relative_to": "origin elevation",
+   "min": -1360.4234619140625,
+   "max": 2688.11962890625,
+   "inner_skip_m": 5990.0,
+   "view": {
+    "subsample": 2,
+    "lower_m": 6.0
+   },
+   "legacy": true,
+   "texture": "farfield80_tex.png"
+  }
+ ]
+}

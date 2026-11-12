@@ -1,0 +1,12 @@
+[project]
+name = "marswalk"
+version = "0.1.0"
+description = "Generate walkable first-person Mars scenes from NASA/USGS orbital data"
+requires-python = ">=3.10"
+dependencies = ["numpy", "pillow"]
+
+[project.scripts]
+marswalk = "marswalk.cli:main"
+
+[tool.setuptools]
+packages = ["marswalk"]

@@ -45,3 +45,8 @@ USGS/JPL Mars 2020 TRN HiRISE and CTX mosaics, NASA/JPL MMGIS (waypoints, traver
 
 `tools/frame/make_bundle.sh` builds a tarball with Godot 4.7.2 arm64 and the viewer. Copy it to the Frame, unpack, run
 `./install.sh`, then `~/mars/mars-flat.sh` (window) or `~/mars/mars-xr.sh` (VR). Not yet verified on the headset.
+
+## New generator (`marswalk`, branch `foundation`)
+
+`pip install -e .` then `marswalk build <sol> <site> <drive>` builds a scene folder with a `scene.json` manifest from remote
+data only (no local DTM). See `docs/SCENE_FORMAT.md`. The old `pipeline/` scripts are kept until texture layers are ported.
