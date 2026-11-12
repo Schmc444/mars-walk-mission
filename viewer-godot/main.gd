@@ -24,6 +24,7 @@ var pitch := 0.0
 var terrain_mat: ShaderMaterial
 var hazard_on := false
 var hud: Label
+var sun_dir_xz := Vector2(-0.64, -0.76)
 
 
 func _ready() -> void:
@@ -131,6 +132,8 @@ func _environment() -> void:
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 80.0
 	add_child(sun)
+	var ld := -sun.basis.z
+	sun_dir_xz = Vector2(ld.x, ld.z).normalized()
 
 
 func _terrain() -> MeshInstance3D:
@@ -149,17 +152,41 @@ varying float slope;
 varying vec2 wpos;
 uniform vec3 far_albedo = vec3(0.2, 0.14, 0.1);
 uniform float patch_half = 50.0;
+uniform vec2 shadow_dir = vec2(-0.64, -0.76); // horizontal direction the sunlight travels (x, z)
 varying float vdist;
 void vertex() { slope = degrees(acos(clamp(NORMAL.y, 0.0, 1.0))); wpos = VERTEX.xz; }
 float h21(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
   return mix(mix(h21(i),h21(i+vec2(1,0)),f.x), mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x), f.y); }
-float peb(vec2 p, float cell, out float tone) {
-  vec2 q = p / cell; vec2 i = floor(q); vec2 f = fract(q);
-  vec2 c = vec2(h21(i + 7.1), h21(i + 3.3)) * 0.5 + 0.25;
-  float rad = 0.14 + 0.2 * h21(i + 9.7);
+// One pebble layer: a rotated, domain-warped jittered grid with at most one pebble per cell.
+// Cell presence follows a clustered density field, centres jitter across the whole cell, each
+// pebble is an ellipse of random size/orientation, so no lattice survives. Returns pebble height
+// (0..1); grad = world-space height gradient (bump), ao = contact darkening just outside the rim.
+float peb(vec2 p, float cell, float ang, float dens, out vec2 grad, out float tone, out float ao) {
+  mat2 R = mat2(vec2(cos(ang), sin(ang)), vec2(-sin(ang), cos(ang)));
+  vec2 q = (R * p) / cell; vec2 i = floor(q); vec2 f = fract(q);
+  grad = vec2(0.0); ao = 1.0;
   tone = h21(i + 5.5);
-  return step(0.2, h21(i + 1.9)) * smoothstep(rad, 0.0, length(f - c));
+  if (h21(i + 1.9) > dens) return 0.0;
+  vec2 c = vec2(h21(i + 7.1), h21(i + 3.3)) * 0.7 + 0.15;
+  float room = min(min(c.x, 1.0 - c.x), min(c.y, 1.0 - c.y));
+  float s = h21(i + 9.7);
+  float rad = min(mix(0.09, 0.42, s * s), room);
+  float a = h21(i + 4.4) * 6.2832;
+  vec2 ax = vec2(cos(a), sin(a));
+  float el = mix(0.55, 1.0, h21(i + 2.6));
+  vec2 dv = f - c;
+  vec2 v = vec2(dot(dv, ax), dot(dv, vec2(-ax.y, ax.x)) / el) / rad;
+  float u2 = dot(v, v);
+  float hs = mix(0.25, 0.6, h21(i + 8.2)); // height/width: flat slabs to rounded pebbles
+  // short cast shadow on the down-sun side (length ~ height / tan(sun elevation))
+  vec2 ds = dv - (R * shadow_dir) * rad * hs * 1.4;
+  vec2 vs = vec2(dot(ds, ax), dot(ds, vec2(-ax.y, ax.x)) / el) / rad;
+  if (u2 >= 1.0) { ao = mix(0.62, 1.0, smoothstep(0.55, 1.1, dot(vs, vs))); return 0.0; }
+  // dh/df of h = 1-u2, then back through the ellipse frame and the layer rotation (cell cancels)
+  vec2 gl = -2.0 * (v.x * ax + (v.y / el) * vec2(-ax.y, ax.x)) / rad;
+  grad = (transpose(R) * gl) * hs * rad;
+  return 1.0 - u2;
 }
 void fragment() {
   float g = texture(ortho, UV).r;
@@ -170,25 +197,43 @@ void fragment() {
   float near = 1.0 - smoothstep(25.0, 70.0, length(VERTEX));
   d = mix(vn(wpos*6.0)*0.5 + vn(wpos*23.0)*0.3 + 0.1, d, near);
   vec3 base = mix(dark, bright, c) * (0.85 + 0.3 * d);
+  // metre-scale tint: greyer basaltic sand vs redder dust, plus a faint wind streak direction
+  float hv = vn(wpos * vec2(0.22, 0.5) + 3.1) * 0.6 + vn(wpos * 1.4 + 9.0) * 0.4;
+  base *= mix(vec3(0.9, 0.93, 1.0), vec3(1.07, 1.0, 0.93), smoothstep(0.25, 0.75, hv));
   float edge = max(abs(wpos.x), abs(wpos.y));
   base = mix(base, far_albedo * (0.8 + 0.4 * d), smoothstep(patch_half - 20.0, patch_half - 1.0, edge));
   if (hazard) {
     float t = smoothstep(hazard_deg*0.6, hazard_deg*1.3, slope);
     base = mix(base, vec3(0.9,0.1,0.1), t*0.65);
   }
-  float dist = length(VERTEX);
-  float w1 = 1.0 - smoothstep(3.0, 9.0, dist);
-  float w2 = 1.0 - smoothstep(8.0, 24.0, dist);
-  float t1; float t2;
-  vec2 e = vec2(0.003, 0.0);
-  float a1 = peb(wpos, 0.022, t1);
-  float a2 = peb(wpos, 0.065, t2);
-  vec2 g1 = vec2(peb(wpos + e.xy, 0.022, t1) - peb(wpos - e.xy, 0.022, t1), peb(wpos + e.yx, 0.022, t1) - peb(wpos - e.yx, 0.022, t1)) / (2.0 * e.x);
-  vec2 g2 = vec2(peb(wpos + e.xy, 0.065, t2) - peb(wpos - e.xy, 0.065, t2), peb(wpos + e.yx, 0.065, t2) - peb(wpos - e.yx, 0.065, t2)) / (2.0 * e.x);
-  vec3 bump = vec3(-(g1.x * w1 * 0.0030 + g2.x * w2 * 0.0080), 0.0, -(g1.y * w1 * 0.0030 + g2.y * w2 * 0.0080));
-  NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(bump, 0.0)).xyz);
-  float lit = a1 * w1 * (t1 - 0.3) + a2 * w2 * (t2 - 0.3);
-  base *= 1.0 + 0.9 * lit;
+  // Pebbles: three rotated, warped layers (granules ~5 mm, pebbles ~1.5 cm, small cobbles ~4 cm),
+  // clustered by a density field that also follows the ortho (darker ground = more clasts).
+  // Each layer fades by its on-screen size (fwidth), so nothing shimmers in the headset.
+  float fw = length(fwidth(wpos));
+  vec2 wp = wpos + (vec2(vn(wpos * 1.3), vn(wpos * 1.3 + 17.0)) - 0.5) * 0.12;
+  float cl = vn(wpos * 0.35 + 40.0) * 0.55 + vn(wpos * 1.6) * 0.3 + (1.0 - c) * 0.3;
+  float D = smoothstep(0.35, 0.8, cl);
+  vec3 L = vec3(0.016, 0.042, 0.1);   // cell sizes (m)
+  vec3 W = vec3(1.0) - smoothstep(L * 0.3, L * 0.9, vec3(fw));
+  vec2 gs = vec2(0.0); float hsum = 0.0; float aot = 1.0; float pc = 0.0; float pw = 0.0;
+  vec2 gg; float tn; float oc; float h;
+  h = peb(wp, L.x, 0.41, mix(0.15, 0.95, D), gg, tn, oc) * W.x;
+  gs += gg * W.x; aot *= mix(1.0, oc, W.x); pc += h * mix(0.5, 1.3, tn); pw += h;
+  h = peb(wp + 11.3, L.y, 1.93, mix(0.06, 0.7, D), gg, tn, oc) * W.y;
+  gs += gg * W.y; aot *= mix(1.0, oc, W.y); pc += h * mix(0.45, 1.35, tn); pw += h;
+  h = peb(wp - 5.7, L.z, 4.12, mix(0.01, 0.4, D * D), gg, tn, oc) * W.z;
+  gs += gg * W.z; aot *= mix(1.0, oc, W.z); pc += h * mix(0.45, 1.3, tn); pw += h;
+  NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(-gs.x, 0.0, -gs.y, 0.0)).xyz);
+  // pebble albedo: dark grey basalt to dust-coated tan; sharp-ish so the clast reads as a stone
+  float on = smoothstep(0.0, 0.15, pw);
+  float k = pw > 0.0 ? pc / pw : 1.0;
+  vec3 stone = mix(vec3(0.075, 0.066, 0.06), vec3(0.3, 0.19, 0.12), clamp(k - 0.45, 0.0, 1.0));
+  base = mix(base, mix(stone, base, 0.25), on * 0.85);
+  base *= aot;
+  // once a layer is sub-pixel, keep its average darkening so gravelly patches still read
+  base *= 1.0 - 0.1 * D * ((1.0 - W.x) + (1.0 - W.y)) * 0.5;
+  // fine sand grain right at the feet
+  base *= 1.0 + (h21(floor(wpos * 400.0)) - 0.5) * 0.12 * (1.0 - smoothstep(0.0015, 0.004, fw));
   ALBEDO = base;
   ROUGHNESS = 1.0;
 }
@@ -199,6 +244,7 @@ void fragment() {
 	terrain_mat.set_shader_parameter("hazard_deg", HAZARD_DEG)
 	terrain_mat.set_shader_parameter("far_albedo", Vector3(FAR_ALBEDO.r, FAR_ALBEDO.g, FAR_ALBEDO.b))
 	terrain_mat.set_shader_parameter("patch_half", half)
+	terrain_mat.set_shader_parameter("shadow_dir", sun_dir_xz)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var cells := int(round(2.0 * half / STEP))
@@ -219,61 +265,164 @@ void fragment() {
 	return mi
 
 
-func _rock_mesh(seed_: int) -> ArrayMesh:
+func _rock_mesh(seed_: int, levels: int) -> ArrayMesh:
+	# Icosphere (2 subdivisions), lumpy radius, then several random planar "fracture" cuts so
+	# the rock has flat broken faces and edges instead of reading as a crystal. Even seeds are
+	# flat shaded (fresh, angular), odd seeds smooth shaded (wind-rounded).
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_
 	var t := (1.0 + sqrt(5.0)) / 2.0
 	var vs: Array[Vector3] = []
 	for p in [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]]:
-		var v := Vector3(p[0], p[1], p[2]).normalized()
-		vs.append(v * rng.randf_range(0.75, 1.15))
+		vs.append(Vector3(p[0], p[1], p[2]).normalized())
 	var faces := [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
 		[3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]]
+	for lvl in levels:
+		var mid := {}
+		var nf := []
+		for f in faces:
+			var m := []
+			for e in [[f[0], f[1]], [f[1], f[2]], [f[2], f[0]]]:
+				var key: int = mini(e[0], e[1]) * 4096 + maxi(e[0], e[1])
+				if not mid.has(key):
+					mid[key] = vs.size()
+					vs.append(((vs[e[0]] + vs[e[1]]) * 0.5).normalized())
+				m.append(mid[key])
+			nf.append([f[0], m[0], m[2]])
+			nf.append([f[1], m[1], m[0]])
+			nf.append([f[2], m[2], m[1]])
+			nf.append([m[0], m[1], m[2]])
+		faces = nf
+	# low-frequency lumps: sum of a few random lobes
+	var lobes := []
+	for k in 4:
+		lobes.append([Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), rng.randf_range(-1, 1)).normalized(), rng.randf_range(-0.18, 0.22)])
+	for i in vs.size():
+		var r := 1.0
+		for l in lobes:
+			r += l[1] * maxf(vs[i].dot(l[0]), 0.0) * maxf(vs[i].dot(l[0]), 0.0)
+		vs[i] *= r * rng.randf_range(0.97, 1.03)
+	# fracture planes
+	for k in rng.randi_range(5, 9) if seed_ % 2 == 0 else rng.randi_range(2, 5):
+		var nrm := Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), rng.randf_range(-1, 1)).normalized()
+		var d := rng.randf_range(0.38, 0.8) if seed_ % 2 == 0 else rng.randf_range(0.6, 0.85)
+		for i in vs.size():
+			var o := vs[i].dot(nrm)
+			if o > d:
+				vs[i] -= nrm * (o - d)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	st.set_smooth_group(-1)
+	st.set_smooth_group(-1 if seed_ % 2 == 0 else 0)
 	for f in faces:
-		for k in [f[0], f[2], f[1]]:
-			st.add_vertex(vs[k])
+		var a: Vector3 = vs[f[0]]
+		var b: Vector3 = vs[f[1]]
+		var c: Vector3 = vs[f[2]]
+		# Godot front faces are clockwise: emit so that (b-a)x(c-a) points inward
+		var order := [f[0], f[2], f[1]] if (b - a).cross(c - a).dot(a + b + c) > 0.0 else [f[0], f[1], f[2]]
+		for idx in order:
+			st.add_vertex(vs[idx])
+	if seed_ % 2 == 1:
+		st.index()
 	st.generate_normals()
 	return st.commit()
+
+
+var rock_variants := 10
+
+
+func _rock_material() -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+render_mode cull_back;
+varying vec3 wp;
+varying vec3 wn;
+varying vec3 icol;
+float h31(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
+float vn3(vec3 p){ vec3 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+  return mix(mix(mix(h31(i), h31(i+vec3(1,0,0)), f.x), mix(h31(i+vec3(0,1,0)), h31(i+vec3(1,1,0)), f.x), f.y),
+             mix(mix(h31(i+vec3(0,0,1)), h31(i+vec3(1,0,1)), f.x), mix(h31(i+vec3(0,1,1)), h31(i+vec3(1,1,1)), f.x), f.y), f.z); }
+void vertex() {
+  wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+  wn = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+  icol = COLOR.rgb;
+}
+void fragment() {
+  float n = vn3(wp * 9.0) * 0.6 + vn3(wp * 31.0) * 0.4;
+  vec3 rock = icol * (0.75 + 0.5 * n);
+  // reddish dust settles on up-facing surfaces and near the ground line
+  vec3 dust = vec3(0.3, 0.165, 0.085);
+  float up = smoothstep(0.45, 0.95, wn.y) * smoothstep(0.3, 0.7, vn3(wp * 6.0) * 0.7 + vn3(wp * 23.0) * 0.3);
+  float dustamt = clamp(up * 0.6, 0.0, 0.6);
+  ALBEDO = mix(rock, dust, dustamt);
+  ROUGHNESS = mix(0.82, 1.0, dustamt);
+}
+"""
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	return m
 
 
 func _rocks() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 448
-	var mat := StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true
-	mat.roughness = 1.0
-	var variants := 6
+	var mat := _rock_material()
 	var xf: Array = []
 	var cols: Array = []
-	for v in variants:
+	for v in rock_variants * 2:
 		xf.append([] as Array[Transform3D])
 		cols.append([] as Array[Color])
-	# big rocks (power-law, up to 0.7 m), thinning with distance from the centre
+	# Rock field = clustered (parent boulder + debris apron) plus a sparse background scatter,
+	# sizes power-law up to 0.7 m, thinning on flat ground and toward the patch edge.
+	for cidx in range(70):
+		var cx := rng.randf_range(-half + 3, half - 3)
+		var cz := rng.randf_range(-half + 3, half - 3)
+		var fade := 1.0 - smoothstep(0.35, 1.0, maxf(absf(cx), absf(cz)) / half)
+		if rng.randf() > fade:
+			continue
+		var big := minf(0.15 / pow(rng.randf_range(0.05, 1.0), 0.55), 0.7)
+		_add_rock(rng, cx, cz, big, xf, cols)
+		var spread := 0.6 + big * 4.0
+		for j in rng.randi_range(4, 22):
+			var ang := rng.randf() * TAU
+			var dd := spread * sqrt(-2.0 * log(maxf(rng.randf(), 1e-4))) * 0.5
+			var x := cx + cos(ang) * dd
+			var z := cz + sin(ang) * dd
+			if absf(x) > half - 1 or absf(z) > half - 1:
+				continue
+			_add_rock(rng, x, z, minf(big * 0.6, 0.03 / pow(rng.randf_range(0.04, 1.0), 0.6)), xf, cols)
 	for i in range(2500):
 		var x := rng.randf_range(-half + 1, half - 1)
 		var z := rng.randf_range(-half + 1, half - 1)
 		var sl := slope_deg(x, z)
 		var fade := 1.0 - smoothstep(0.35, 1.0, maxf(absf(x), absf(z)) / half)
-		if rng.randf() > (0.12 + sl / 30.0) * fade:
+		if rng.randf() > (0.06 + sl / 40.0) * fade:
 			continue
-		var r := minf(0.08 / pow(rng.randf_range(0.02, 1.0), 0.6), 0.7)
+		var r := minf(0.07 / pow(rng.randf_range(0.02, 1.0), 0.6), 0.6)
 		_add_rock(rng, x, z, r, xf, cols)
-	# pebbles and flat slabs near the walking area (real surface here is dense gravel)
+	# pebbles and flat slabs near the walking area, in loose patches (the shader adds the fine gravel)
+	var pc: Array[Vector2] = []
+	for i in range(60):
+		pc.append(Vector2(rng.randf_range(-20.0, 20.0), rng.randf_range(-20.0, 20.0)))
 	for i in range(9000):
 		var x := rng.randf_range(-20.0, 20.0)
 		var z := rng.randf_range(-20.0, 20.0)
-		if rng.randf() > 1.0 - smoothstep(6.0, 20.0, Vector2(x, z).length()):
+		var near := 1e9
+		for q in pc:
+			near = minf(near, q.distance_squared_to(Vector2(x, z)))
+		var keep := (0.25 + 0.75 * exp(-near / 6.0)) * (1.0 - smoothstep(6.0, 20.0, Vector2(x, z).length()))
+		if rng.randf() > keep:
 			continue
 		var r := minf(0.012 / pow(rng.randf_range(0.03, 1.0), 0.55), 0.14)
 		_add_rock(rng, x, z, r, xf, cols)
-	for v in variants:
+	var tris := 0
+	for v in rock_variants * 2:
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
-		mm.mesh = _rock_mesh(448 + v * 17)
 		mm.use_colors = true
+		# second half of the variants = low-poly versions for small clasts (< 6 cm)
+		mm.mesh = _rock_mesh(448 + v * 17 + v % 2, 2 if v < rock_variants else 1)
+		tris += xf[v].size() * (320 if v < rock_variants else 80)
 		mm.instance_count = xf[v].size()
 		for k in xf[v].size():
 			mm.set_instance_transform(k, xf[v][k])
@@ -283,16 +432,26 @@ func _rocks() -> void:
 		mi.material_override = mat
 		mi.name = "SyntheticRocks%d" % v
 		add_child(mi)
+	print("rocks: %d tris" % tris)
 
 
 func _add_rock(rng: RandomNumberGenerator, x: float, z: float, r: float, xf: Array, cols: Array) -> void:
-	var b := Basis.from_euler(Vector3(rng.randf() * 0.6, rng.randf() * TAU, rng.randf() * 0.6))
-	var flat := rng.randf_range(0.3, 0.9)
-	b = b.scaled(Vector3(r * rng.randf_range(0.8, 1.4), r * flat, r * rng.randf_range(0.6, 1.2)))
-	var v := rng.randi() % xf.size()
-	xf[v].append(Transform3D(b, Vector3(x, height_at(x, z) + r * flat * 0.25, z)))
-	var k := rng.randf_range(0.85, 1.2)
-	cols[v].append((Color(0.34, 0.225, 0.155) if rng.randf() < 0.65 else Color(0.12, 0.085, 0.065)) * k)
+	# sit the rock on the local terrain normal, random yaw, and bury 20-55 % of its height
+	var gx := (height_at(x + 0.5, z) - height_at(x - 0.5, z))
+	var gz := (height_at(x, z + 0.5) - height_at(x, z - 0.5))
+	var up := Vector3(-gx, 1.0, -gz).normalized()
+	var tilt := Basis(Vector3.UP, rng.randf() * TAU)
+	var lean := Vector3(rng.randf_range(-0.25, 0.25), 0, rng.randf_range(-0.25, 0.25))
+	var b := Basis(Quaternion(Vector3.UP, (up + lean).normalized())) * tilt
+	var flat := rng.randf_range(0.35, 0.85)
+	b = b * Basis.from_scale(Vector3(r * rng.randf_range(0.85, 1.35), r * flat, r * rng.randf_range(0.65, 1.15)))
+	var v := rng.randi() % rock_variants + (rock_variants if r < 0.06 else 0)
+	var bury := rng.randf_range(0.2, 0.55)
+	xf[v].append(Transform3D(b, Vector3(x, height_at(x, z), z) + up * r * flat * (1.0 - 2.0 * bury)))
+	# lithology: mostly grey-brown basaltic, some darker, a few lighter tan clasts
+	var u := rng.randf()
+	var col := Color(0.2, 0.15, 0.115) if u < 0.55 else (Color(0.1, 0.085, 0.075) if u < 0.88 else Color(0.32, 0.24, 0.17))
+	cols[v].append(col * rng.randf_range(0.85, 1.15))
 
 
 func _route() -> void:
