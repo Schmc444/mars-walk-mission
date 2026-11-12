@@ -1,5 +1,5 @@
-"""Read a window of an uncompressed, stripped/tiled (Big)TIFF over HTTP range requests or from a local file (no GDAL)."""
-import struct, time, urllib.request
+"""Read a window of a stripped/tiled (Big)TIFF (uncompressed or DEFLATE, predictor 1/2) over HTTP range requests or a local file (no GDAL)."""
+import struct, time, urllib.request, zlib
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
@@ -38,7 +38,12 @@ class RemoteBigTiff:
         self.width, self.height = t[256][0], t[257][0]
         self.bits = t[258][0]
         self.dtype = {(8, 1): "u1", (16, 1): "u2", (16, 2): "i2", (32, 3): "f4"}[(self.bits, t.get(339, (1,))[0])]
-        assert t.get(259, (1,))[0] == 1, "compressed TIFF not supported"
+        self.compression = t.get(259, (1,))[0]
+        assert self.compression in (1, 8, 32946), "unsupported TIFF compression %d" % self.compression
+        self.predictor = t.get(317, (1,))[0]
+        assert self.predictor in (1, 2), "unsupported TIFF predictor %d" % self.predictor
+        assert self.compression == 1 or 322 in t, "compressed TIFF must be tiled"
+        self.nodata = float(t[42113]) if 42113 in t else None
         self.tiled = 322 in t
         self.px = t[33550][0]
         self.x0, self.y0 = t[33922][3], t[33922][4]
@@ -57,6 +62,14 @@ class RemoteBigTiff:
                     raise
                 time.sleep(0.5 * 2 ** attempt)
 
+    def _decode(self, raw, th, tw):
+        if self.compression == 1:
+            return np.frombuffer(raw, dtype=self.dtype).reshape(th, tw)
+        a = np.frombuffer(zlib.decompress(raw), dtype=self.dtype).reshape(th, tw)
+        if self.predictor == 2:
+            a = np.cumsum(a, axis=1, dtype=self.dtype)
+        return a
+
     def window(self, x, y, w, h):
         """Pixel window (x, y, w, h) -> array (h, w). Reads in parallel."""
         bps = self.bits // 8
@@ -70,7 +83,7 @@ class RemoteBigTiff:
             def get_tile(j):
                 tx, ty = j
                 k = ty * tpr + tx
-                tile = np.frombuffer(self._rng(offs[k], offs[k] + cnts[k] - 1), dtype=self.dtype).reshape(th, tw)
+                tile = self._decode(self._rng(offs[k], offs[k] + cnts[k] - 1), th, tw)
                 sx0, sy0 = max(x, tx * tw), max(y, ty * th)
                 sx1, sy1 = min(x + w, (tx + 1) * tw), min(y + h, (ty + 1) * th)
                 out[sy0 - y:sy1 - y, sx0 - x:sx1 - x] = tile[sy0 - ty * th:sy1 - ty * th, sx0 - tx * tw:sx1 - tx * tw]

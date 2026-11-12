@@ -61,6 +61,20 @@ def check(a):
     return 1 if p else 0
 
 
+INDEX = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "hirise_dtm_index.json")
+
+
+def index(a):
+    from . import catalog
+    json.dump(catalog.build_index(progress=lambda i, n: print(i, "/", n, flush=True)), open(INDEX, "w"), indent=0)
+
+
+def find(a):
+    from . import catalog
+    for s in catalog.find(json.load(open(INDEX)), a.lon, a.lat, a.margin):
+        print("%s  %.1f km2  %.2f m/px  lon %.3f..%.3f lat %.3f..%.3f" % (s["id"], s["area_km2"], s["px_m"], s["lon_w"], s["lon_e"], s["lat_s"], s["lat_n"]))
+
+
 def main():
     ap = argparse.ArgumentParser(prog="marswalk", description="Generate walkable Mars scenes from orbital data.")
     sp = ap.add_subparsers(dest="cmd", required=True)
@@ -71,6 +85,10 @@ def main():
     b.set_defaults(fn=build)
     ad = sp.add_parser("adopt", help="write scene.json for an old-format patch folder"); ad.add_argument("folder"); ad.set_defaults(fn=adopt)
     c = sp.add_parser("validate", help="check a scene folder against its scene.json"); c.add_argument("folder"); c.set_defaults(fn=check)
+    ix = sp.add_parser("index", help="rebuild data/hirise_dtm_index.json from the public HiRISE DTM bucket"); ix.set_defaults(fn=index)
+    fd = sp.add_parser("find", help="list HiRISE DTMs covering a lon/lat")
+    fd.add_argument("lon", type=float); fd.add_argument("lat", type=float); fd.add_argument("--margin", type=float, default=0.0)
+    fd.set_defaults(fn=find)
     ls = sp.add_parser("layers", help="list available layers")
     ls.set_defaults(fn=lambda a: print("\n".join("%-10s requires %s" % (k, ",".join(L.LAYERS[k].requires) or "-") for k in L.ORDER)))
     a = ap.parse_args()
