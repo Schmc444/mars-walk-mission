@@ -79,7 +79,8 @@ func _environment() -> void:
 	env.sky = s
 	env.background_mode = Environment.BG_SKY
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.45
+	env.ambient_light_energy = 0.6
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.82, 0.6, 0.45)
 	env.fog_density = 0.0
@@ -90,7 +91,8 @@ func _environment() -> void:
 	we.environment = env
 	add_child(we)
 	var sun := DirectionalLight3D.new()
-	sun.light_color = Color(1.0, 0.88, 0.75)
+	sun.light_color = Color(1.0, 0.94, 0.86)
+	sun.light_angular_distance = 0.35
 	sun.light_energy = 1.3
 	sun.rotation_degrees = Vector3(-35, 40, 0)
 	sun.shadow_enabled = true
@@ -107,7 +109,7 @@ func _terrain() -> MeshInstance3D:
 	var sh := Shader.new()
 	sh.code = """
 shader_type spatial;
-uniform sampler2D ortho : source_color, filter_linear_mipmap_anisotropic;
+uniform sampler2D ortho : filter_linear_mipmap_anisotropic;
 uniform bool hazard = false;
 uniform float hazard_deg = 15.0;
 varying float slope;
@@ -119,9 +121,10 @@ float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
 void fragment() {
   float g = texture(ortho, UV).r;
   float d = vn(wpos*6.0)*0.5 + vn(wpos*23.0)*0.3 + vn(wpos*91.0)*0.2;
-  float c = clamp((g - 0.2) / 0.38, 0.0, 1.0);
-  float lum = (0.12 + 0.88 * c) * (0.8 + 0.4*d);
-  vec3 base = vec3(lum*0.95, lum*0.62, lum*0.42);
+  float c = clamp((g - 0.227) / 0.313, 0.0, 1.0);
+  vec3 dark = vec3(0.07, 0.056, 0.046);
+  vec3 bright = vec3(0.27, 0.185, 0.125);
+  vec3 base = mix(dark, bright, c) * (0.85 + 0.3 * d);
   if (hazard) {
     float t = smoothstep(hazard_deg*0.6, hazard_deg*1.3, slope);
     base = mix(base, vec3(0.9,0.1,0.1), t*0.65);
@@ -161,11 +164,13 @@ func _rocks() -> void:
 	sm.radial_segments = 8
 	sm.rings = 5
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.36, 0.26, 0.2)
+	mat.vertex_color_use_as_albedo = true
 	mat.roughness = 1.0
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.mesh = sm
+	mm.use_colors = true
+	var cols: Array[Color] = []
 	var xf: Array[Transform3D] = []
 	for i in range(2500):
 		var x := rng.randf_range(-half + 1, half - 1)
@@ -178,9 +183,12 @@ func _rocks() -> void:
 		var b := Basis.from_euler(Vector3(rng.randf() * TAU, rng.randf() * TAU, rng.randf() * TAU))
 		b = b.scaled(Vector3(r, r * rng.randf_range(0.5, 0.9), r * rng.randf_range(0.7, 1.2)))
 		xf.append(Transform3D(b, Vector3(x, height_at(x, z) + r * 0.15, z)))
+		var v := rng.randf_range(0.8, 1.2)
+		cols.append((Color(0.3, 0.22, 0.17) if rng.randf() < 0.3 else Color(0.1, 0.08, 0.07)) * v)
 	mm.instance_count = xf.size()
 	for i in xf.size():
 		mm.set_instance_transform(i, xf[i])
+		mm.set_instance_color(i, cols[i])
 	var mi := MultiMeshInstance3D.new()
 	mi.multimesh = mm
 	mi.material_override = mat
@@ -338,16 +346,16 @@ func _farfield() -> void:
 		for ix in range(cells):
 			var x0 := -fhalf + ix * cs
 			var z0 := -fhalf + iz * cs
-			if x0 + cs > -half - 2.0 and x0 < half + 2.0 and z0 + cs > -half - 2.0 and z0 < half + 2.0:
+			if x0 >= -half + 8.0 - cs * 0.0 and x0 + cs <= half - 8.0 and z0 >= -half + 8.0 and z0 + cs <= half - 8.0:
 				continue
 			var vs := [Vector2i(ix, iz), Vector2i(ix + 1, iz), Vector2i(ix, iz + 1), Vector2i(ix + 1, iz + 1)]
 			for k in [0, 1, 2, 1, 3, 2]:
 				var v: Vector2i = vs[k]
-				var hh := fh[(v.y * sub) * fn + v.x * sub] - 0.6
+				var hh := fh[(v.y * sub) * fn + v.x * sub] - 2.5
 				st.add_vertex(Vector3(-fhalf + v.x * cs, hh, -fhalf + v.y * cs))
 	st.generate_normals()
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.5, 0.36, 0.27)
+	mat.albedo_color = Color(0.42, 0.31, 0.24)
 	mat.roughness = 1.0
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
