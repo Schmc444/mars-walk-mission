@@ -3,7 +3,10 @@ extends Node3D
 
 const PATCH := "res://patch/"
 const STEP := 0.5
-const LIMIT := 45.0
+const LIMIT := 45.0 # walkable half-width in m (a ~90 m x 90 m square); the "100 m2" request is read as ~100 m across
+const MARS_R := 3396190.0
+const FAR_ALBEDO := Color(0.2, 0.14, 0.1)
+const ROVER_MODEL := "res://models/perseverance.glbd"
 const HAZARD_DEG := 15.0
 
 var meta: Dictionary
@@ -36,9 +39,10 @@ func _ready() -> void:
 	_route()
 	_setup_player()
 	_setup_xr()
-	var p := Vector3(0, 0, 0)
+	_rover()
+	var p := Vector3(0, 0, 8)
 	origin.position = Vector3(p.x, height_at(p.x, p.z), p.z)
-	yaw = deg_to_rad(float(meta["waypoint"]["yaw"]))
+	yaw = 0.0
 	_hud()
 	if "--test" in OS.get_cmdline_user_args():
 		print("TEST ok n=%d h(0,0)=%.2f h(30,0)=%.2f" % [n, height_at(0, 0), height_at(30, 0)])
@@ -82,11 +86,11 @@ func _environment() -> void:
 	env.ambient_light_energy = 0.6
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.82, 0.6, 0.45)
-	env.fog_density = 0.0
-	env.fog_depth_begin = 250.0
-	env.fog_depth_end = 3200.0
-	env.fog_mode = Environment.FOG_MODE_DEPTH
+	env.fog_light_color = Color(0.8, 0.6, 0.45)
+	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
+	env.fog_density = 0.00032
+	env.fog_aerial_perspective = 0.35
+	env.fog_sky_affect = 0.0
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
@@ -114,6 +118,9 @@ uniform bool hazard = false;
 uniform float hazard_deg = 15.0;
 varying float slope;
 varying vec2 wpos;
+uniform vec3 far_albedo = vec3(0.2, 0.14, 0.1);
+uniform float patch_half = 50.0;
+varying float vdist;
 void vertex() { slope = degrees(acos(clamp(NORMAL.y, 0.0, 1.0))); wpos = VERTEX.xz; }
 float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
 float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
@@ -124,7 +131,11 @@ void fragment() {
   float c = clamp((g - 0.227) / 0.313, 0.0, 1.0);
   vec3 dark = vec3(0.07, 0.056, 0.046);
   vec3 bright = vec3(0.27, 0.185, 0.125);
+  float near = 1.0 - smoothstep(25.0, 70.0, length(VERTEX));
+  d = mix(vn(wpos*6.0)*0.5 + vn(wpos*23.0)*0.3 + 0.1, d, near);
   vec3 base = mix(dark, bright, c) * (0.85 + 0.3 * d);
+  float edge = max(abs(wpos.x), abs(wpos.y));
+  base = mix(base, far_albedo * (0.8 + 0.4 * d), smoothstep(patch_half - 20.0, patch_half - 1.0, edge));
   if (hazard) {
     float t = smoothstep(hazard_deg*0.6, hazard_deg*1.3, slope);
     base = mix(base, vec3(0.9,0.1,0.1), t*0.65);
@@ -137,6 +148,8 @@ void fragment() {
 	terrain_mat.shader = sh
 	terrain_mat.set_shader_parameter("ortho", tex)
 	terrain_mat.set_shader_parameter("hazard_deg", HAZARD_DEG)
+	terrain_mat.set_shader_parameter("far_albedo", Vector3(FAR_ALBEDO.r, FAR_ALBEDO.g, FAR_ALBEDO.b))
+	terrain_mat.set_shader_parameter("patch_half", half)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var cells := int(round(2.0 * half / STEP))
@@ -176,7 +189,8 @@ func _rocks() -> void:
 		var x := rng.randf_range(-half + 1, half - 1)
 		var z := rng.randf_range(-half + 1, half - 1)
 		var sl := slope_deg(x, z)
-		if rng.randf() > 0.12 + sl / 30.0:
+		var fade := 1.0 - smoothstep(0.35, 1.0, maxf(absf(x), absf(z)) / half)
+		if rng.randf() > (0.12 + sl / 30.0) * fade:
 			continue
 		var r := 0.08 / pow(rng.randf_range(0.02, 1.0), 0.6)
 		r = minf(r, 0.7)
@@ -231,18 +245,9 @@ func _route() -> void:
 	l.font_size = 64
 	l.pixel_size = 0.006
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	l.position = Vector3(0, height_at(0, 0) + 3.0, 0)
+	l.position = Vector3(0, height_at(0, 0) + 3.4, 0)
 	l.no_depth_test = true
 	add_child(l)
-	var pole := MeshInstance3D.new()
-	var cm := CylinderMesh.new()
-	cm.top_radius = 0.03
-	cm.bottom_radius = 0.03
-	cm.height = 2.6
-	pole.mesh = cm
-	pole.material_override = mat
-	pole.position = Vector3(0, height_at(0, 0) + 1.3, 0)
-	add_child(pole)
 
 
 func _hud() -> void:
@@ -331,34 +336,100 @@ func _process(delta: float) -> void:
 
 
 func _farfield() -> void:
-	var fm: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(PATCH + "farfield.json"))
+	_farring("farfield", 3, 2.5, 8.0 - half)
+	_farring("farfield6", 3, 3.0, 2990.0)
+
+
+func _farring(base: String, sub: int, lower: float, skip_half: float) -> void:
+	var fm: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(PATCH + base + ".json"))
 	var fn := int(fm["samples"])
 	var fstep := float(fm["step_m"])
-	var f := FileAccess.open(PATCH + "farfield.f32", FileAccess.READ)
+	var f := FileAccess.open(PATCH + base + ".f32", FileAccess.READ)
 	var fh := f.get_buffer(f.get_length()).to_float32_array()
 	var fhalf := float(fm["half_m"])
-	var sub := 3
 	var cs := fstep * sub
 	var cells := (fn - 1) / sub
+	var sk := absf(skip_half)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for iz in range(cells):
 		for ix in range(cells):
 			var x0 := -fhalf + ix * cs
 			var z0 := -fhalf + iz * cs
-			if x0 >= -half + 8.0 - cs * 0.0 and x0 + cs <= half - 8.0 and z0 >= -half + 8.0 and z0 + cs <= half - 8.0:
+			var inside := x0 >= -sk and x0 + cs <= sk and z0 >= -sk and z0 + cs <= sk
+			if inside:
 				continue
 			var vs := [Vector2i(ix, iz), Vector2i(ix + 1, iz), Vector2i(ix, iz + 1), Vector2i(ix + 1, iz + 1)]
 			for k in [0, 1, 2, 1, 3, 2]:
 				var v: Vector2i = vs[k]
-				var hh := fh[(v.y * sub) * fn + v.x * sub] - 2.5
+				var hh := fh[(v.y * sub) * fn + v.x * sub] - lower
 				st.add_vertex(Vector3(-fhalf + v.x * cs, hh, -fhalf + v.y * cs))
 	st.generate_normals()
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.42, 0.31, 0.24)
-	mat.roughness = 1.0
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+uniform vec3 albedo = vec3(0.2, 0.14, 0.1);
+uniform float planet_r = 3396190.0;
+varying vec2 wpos;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  return mix(mix(h21(i),h21(i+vec2(1,0)),f.x), mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x), f.y); }
+void vertex() {
+  wpos = VERTEX.xz;
+  vec2 rel = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xz - CAMERA_POSITION_WORLD.xz;
+  VERTEX.y -= dot(rel, rel) / (2.0 * planet_r);
+}
+void fragment() {
+  float d = vn(wpos / 120.0) * 0.6 + vn(wpos / 30.0) * 0.4;
+  ALBEDO = albedo * (0.75 + 0.5 * d);
+  ROUGHNESS = 1.0;
+}
+"""
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	mat.set_shader_parameter("albedo", Vector3(FAR_ALBEDO.r, FAR_ALBEDO.g, FAR_ALBEDO.b))
+	mat.set_shader_parameter("planet_r", MARS_R)
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
 	mi.material_override = mat
-	mi.name = "FarField"
+	mi.custom_aabb = AABB(Vector3(-fhalf, -300, -fhalf), Vector3(2 * fhalf, 1500, 2 * fhalf))
+	mi.name = base
 	add_child(mi)
+
+
+func _collect_aabb(n: Node, root: Node3D, acc: Array) -> void:
+	if n is MeshInstance3D:
+		var xf: Transform3D = root.global_transform.affine_inverse() * n.global_transform
+		var a: AABB = xf * n.get_aabb()
+		acc[0] = a if acc[0] == null else (acc[0] as AABB).merge(a)
+	for ch in n.get_children():
+		_collect_aabb(ch, root, acc)
+
+
+func _rover() -> void:
+	var bytes := FileAccess.get_file_as_bytes(ROVER_MODEL)
+	var doc := GLTFDocument.new()
+	var gst := GLTFState.new()
+	if doc.append_from_buffer(bytes, "", gst) != OK:
+		push_warning("rover model failed to load")
+		return
+	var scene := doc.generate_scene(gst)
+	var holder := Node3D.new()
+	holder.add_child(scene)
+	add_child(holder)
+	var acc: Array = [null]
+	_collect_aabb(holder, holder, acc)
+	var bb: AABB = acc[0]
+	scene.position = Vector3(-(bb.position.x + bb.size.x / 2.0), -bb.position.y, -(bb.position.z + bb.size.z / 2.0))
+	var az := deg_to_rad(float(meta["waypoint"]["yaw"]))
+	var fwd := Vector3(sin(az), 0, -cos(az))
+	var hs := [height_at(0, 0), height_at(1.3, 1.5), height_at(-1.3, 1.5), height_at(1.3, -1.5), height_at(-1.3, -1.5)]
+	var gx := (height_at(1.5, 0) - height_at(-1.5, 0)) / 3.0
+	var gz := (height_at(0, 1.5) - height_at(0, -1.5)) / 3.0
+	var up := Vector3(-gx, 1.0, -gz).normalized()
+	var right := fwd.cross(up).normalized()
+	var fwd2 := up.cross(right)
+	var lowest: float = hs.min()
+	holder.transform = Transform3D(Basis(right, up, -fwd2), Vector3(0, lowest + 0.02, 0))
+	holder.name = "Perseverance"
+
