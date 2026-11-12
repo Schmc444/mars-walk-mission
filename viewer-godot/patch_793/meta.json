@@ -1,0 +1,24 @@
+{
+ "size_m": 90,
+ "samples": 91,
+ "step_m": 1.0,
+ "ortho_px": 364,
+ "ortho_step_m": 0.25,
+ "axes": "x east, z south, y up (m), origin = rover waypoint",
+ "center_elevation_m": -2421.81298828125,
+ "waypoint": {
+  "sol": 793,
+  "site": 39,
+  "drive": 1036,
+  "lon": 77.36867979,
+  "lat": 18.48255996,
+  "roll": -4.524983108,
+  "pitch": 12.84653621,
+  "yaw": -108.0271205
+ },
+ "sources": {
+  "dtm": "USGS/JPL Mars 2020 TRN HiRISE DTM mosaic 1 m",
+  "ortho": "USGS/JPL Mars 2020 TRN HiRISE ortho mosaic 25 cm (grayscale)"
+ },
+ "relief_m": 9.5693359375
+}

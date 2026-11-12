@@ -36,7 +36,7 @@ class RemoteBigTiff:
         t = self.tags
         self.width, self.height = t[256][0], t[257][0]
         self.bits = t[258][0]
-        self.dtype = {(8, 1): "u1", (16, 1): "u2", (32, 3): "f4"}[(self.bits, t.get(339, (1,))[0])]
+        self.dtype = {(8, 1): "u1", (16, 1): "u2", (16, 2): "i2", (32, 3): "f4"}[(self.bits, t.get(339, (1,))[0])]
         assert t.get(259, (1,))[0] == 1, "compressed TIFF not supported"
         self.tiled = 322 in t
         scale = t.get(33550)

@@ -1,7 +1,7 @@
 extends Node3D
 # Mars Route Walker viewer: loads a patch folder (heightmap.f32, ortho.png, route_local.json, meta.json).
 
-const PATCH := "res://patch/"
+var PATCH := "res://patch/"
 const STEP := 0.5
 const LIMIT := 45.0 # walkable half-width in m (a ~90 m x 90 m square); the "100 m2" request is read as ~100 m across
 const MARS_R := 3396190.0
@@ -27,6 +27,9 @@ var hud: Label
 
 
 func _ready() -> void:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--patch="):
+			PATCH = "res://" + a.substr(8) + "/"
 	meta = JSON.parse_string(FileAccess.get_file_as_string(PATCH + "meta.json"))
 	n = int(meta["samples"])
 	half = (n - 1) * 0.5
@@ -100,9 +103,9 @@ func slope_deg(x: float, z: float) -> float:
 func _environment() -> void:
 	var env := Environment.new()
 	var sky := ProceduralSkyMaterial.new()
-	sky.sky_top_color = Color(0.45, 0.38, 0.33)
-	sky.sky_horizon_color = Color(0.85, 0.62, 0.45)
-	sky.ground_horizon_color = Color(0.8, 0.58, 0.42)
+	sky.sky_top_color = Color(0.6, 0.4, 0.3)
+	sky.sky_horizon_color = Color(0.95, 0.6, 0.4)
+	sky.ground_horizon_color = Color(0.88, 0.55, 0.38)
 	sky.ground_bottom_color = Color(0.5, 0.35, 0.27)
 	var s := Sky.new()
 	s.sky_material = sky
@@ -112,9 +115,9 @@ func _environment() -> void:
 	env.ambient_light_energy = 0.6
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.8, 0.6, 0.45)
+	env.fog_light_color = Color(0.9, 0.58, 0.4)
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
-	env.fog_density = 0.00032
+	env.fog_density = 0.00007
 	env.fog_aerial_perspective = 0.35
 	env.fog_sky_affect = 0.0
 	var we := WorldEnvironment.new()
@@ -162,8 +165,8 @@ void fragment() {
   float g = texture(ortho, UV).r;
   float d = vn(wpos*6.0)*0.5 + vn(wpos*23.0)*0.3 + vn(wpos*91.0)*0.2;
   float c = clamp((g - 0.227) / 0.313, 0.0, 1.0);
-  vec3 dark = vec3(0.07, 0.052, 0.038);
-  vec3 bright = vec3(0.29, 0.186, 0.105);
+  vec3 dark = vec3(0.07, 0.042, 0.027);
+  vec3 bright = vec3(0.3, 0.16, 0.08);
   float near = 1.0 - smoothstep(25.0, 70.0, length(VERTEX));
   d = mix(vn(wpos*6.0)*0.5 + vn(wpos*23.0)*0.3 + 0.1, d, near);
   vec3 base = mix(dark, bright, c) * (0.85 + 0.3 * d);
@@ -230,7 +233,7 @@ func _rock_mesh(seed_: int) -> ArrayMesh:
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	st.set_smooth_group(-1)
 	for f in faces:
-		for k in f:
+		for k in [f[0], f[2], f[1]]:
 			st.add_vertex(vs[k])
 	st.generate_normals()
 	return st.commit()
@@ -346,7 +349,7 @@ func _setup_player() -> void:
 	add_child(origin)
 	cam = XRCamera3D.new()
 	cam.position.y = 1.6
-	cam.far = 6000.0
+	cam.far = 150000.0
 	origin.add_child(cam)
 	left = XRController3D.new()
 	left.tracker = &"left_hand"
@@ -425,6 +428,8 @@ func _process(delta: float) -> void:
 func _farfield() -> void:
 	_farring("farfield", 3, 2.5, 8.0 - half)
 	_farring("farfield6", 3, 3.0, 2990.0)
+	if FileAccess.file_exists(PATCH + "farfield80.f32"):
+		_farring("farfield80", 2, 6.0, 5990.0)
 
 
 func _farring(base: String, sub: int, lower: float, skip_half: float) -> void:
@@ -457,6 +462,10 @@ func _farring(base: String, sub: int, lower: float, skip_half: float) -> void:
 shader_type spatial;
 uniform vec3 albedo = vec3(0.2, 0.14, 0.1);
 uniform float planet_r = 3396190.0;
+uniform sampler2D tex : hint_default_white, filter_linear_mipmap, repeat_disable;
+uniform float tex_mean = 1.0;
+uniform float tex_on = 0.0;
+uniform float tex_half = 1000.0;
 varying vec2 wpos;
 float h21(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
@@ -468,7 +477,9 @@ void vertex() {
 }
 void fragment() {
   float d = vn(wpos / 120.0) * 0.6 + vn(wpos / 30.0) * 0.4;
-  ALBEDO = albedo * (0.75 + 0.5 * d);
+  float tv = texture(tex, (wpos + tex_half) / (2.0 * tex_half)).r;
+  float tg = mix(1.0, pow(clamp(tv / tex_mean, 0.4, 1.7), 1.25), tex_on);
+  ALBEDO = albedo * (0.8 + 0.4 * d) * tg;
   ROUGHNESS = 1.0;
 }
 """
@@ -476,10 +487,24 @@ void fragment() {
 	mat.shader = sh
 	mat.set_shader_parameter("albedo", Vector3(FAR_ALBEDO.r, FAR_ALBEDO.g, FAR_ALBEDO.b))
 	mat.set_shader_parameter("planet_r", MARS_R)
+	var tp := ProjectSettings.globalize_path(PATCH + base + "_tex.png")
+	if FileAccess.file_exists(PATCH + base + "_tex.png"):
+		var timg := Image.load_from_file(tp)
+		if timg != null:
+			timg.convert(Image.FORMAT_L8)
+			timg.generate_mipmaps()
+			var sum := 0.0
+			var d8 := timg.get_data()
+			for i in range(0, d8.size(), 7):
+				sum += d8[i]
+			mat.set_shader_parameter("tex", ImageTexture.create_from_image(timg))
+			mat.set_shader_parameter("tex_mean", maxf(sum / (d8.size() / 7.0) / 255.0, 0.01))
+			mat.set_shader_parameter("tex_on", 1.0)
+			mat.set_shader_parameter("tex_half", fhalf)
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
 	mi.material_override = mat
-	mi.custom_aabb = AABB(Vector3(-fhalf, -300, -fhalf), Vector3(2 * fhalf, 1500, 2 * fhalf))
+	mi.custom_aabb = AABB(Vector3(-fhalf, -3000, -fhalf), Vector3(2 * fhalf, 7000, 2 * fhalf))
 	mi.name = base
 	add_child(mi)
 
