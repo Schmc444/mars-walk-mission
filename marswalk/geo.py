@@ -4,7 +4,7 @@ The NASA/USGS mosaics are equirectangular with standard parallel 0 (X = R*lon, Y
 `px` metres N-S but only `px*cos(lat)` metres E-W on the ground. Everything here converts through lon/lat so the scene
 uses true ground metres on both axes.
 """
-import math
+import math, warnings
 import numpy as np
 
 R = 3396190.0
@@ -40,11 +40,22 @@ class Raster:
         return (R * np.radians(lon) - t.x0) / t.px, (t.y0 - R * np.radians(lat)) / t.px
 
 
+class ClonRaster(Raster):
+    """Equirectangular mosaic centred on longitude 180 (Robbins CTX quads): x = R*radians(lon - 180), lon wrapped."""
+
+    def lonlat_to_px(self, lon, lat):
+        t = self.tif
+        lc = (np.asarray(lon) % 360.0) - 180.0
+        return (R * np.radians(lc) - t.x0) / t.px, (t.y0 - R * np.radians(lat)) / t.px
+
+
 def block_mean(a, b):
     if b == 1:
         return a
     m, n = a.shape[0] // b, a.shape[1] // b
-    return np.nanmean(a[:m * b, :n * b].reshape(m, b, n, b), axis=(1, 3))
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        return np.nanmean(a[:m * b, :n * b].reshape(m, b, n, b), axis=(1, 3))
 
 
 def bilinear(img, ix, iy):
@@ -62,7 +73,14 @@ def bilinear(img, ix, iy):
 def sample_ground_grid(raster, site, half_m, step_m, block=1, nodata_below=-1e30, keep_nan=False):
     """Resample a mosaic onto the scene's ground grid (n x n, row 0 = north). `block` pre-averages source pixels
     (use for coarse rings so fine detail is averaged, not aliased). Returns float32 (n, n)."""
-    _, _, lon, lat = site.axis_lonlat(half_m, step_m)
+    E, S, _, _ = site.axis_lonlat(half_m, step_m)
+    return sample_axes(raster, site, E, S, block, nodata_below, keep_nan)
+
+
+def sample_axes(raster, site, E, S, block=1, nodata_below=-1e30, keep_nan=False):
+    """Like sample_ground_grid for arbitrary ground axes: E east metres (columns), S south metres (rows)."""
+    lon = site.lon + np.degrees(np.asarray(E) / (R * site.cos))
+    lat = site.lat - np.degrees(np.asarray(S) / R)
     fx, fy = raster.lonlat_to_px(lon, lat)
     pad = block + 2
     c0, r0 = int(math.floor(fx.min())) - pad, int(math.floor(fy.min())) - pad

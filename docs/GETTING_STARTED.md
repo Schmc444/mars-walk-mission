@@ -68,7 +68,7 @@ Formato de escena: `docs/SCENE_FORMAT.md`. Cada capa es un plugin `@layer(...)` 
 ## 5. Problemas conocidos
 
 - Algunos sitios tienen mucho nodata: el parche válido puede estar lejos del centro; usa `--lon/--lat`.
-- La mayoría del horizonte en sitios HiRISE viene del mapa global de 200 m, se ve borroso a lo lejos.
+- La mayoría del horizonte en sitios HiRISE viene del mapa global de 200 m, se ve borroso a lo lejos. Las texturas de los anillos (foto en gris sobre el relieve lejano) vienen de los mosaicos CTX de Robbins y solo existen entre 30°S y 30°N; fuera de eso el anillo queda de un solo color.
 - Las ortofotos de varios sitios son de un solo canal (gris).
 - Sitios polares (156) no están soportados.
 - Parches viejos (`patch`, `patch_793`) tienen ~5% de estiramiento este-oeste; las escenas nuevas generadas con `marswalk` no.

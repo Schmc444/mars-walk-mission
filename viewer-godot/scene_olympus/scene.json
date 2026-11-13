@@ -6,7 +6,7 @@
  "generator": {
   "name": "marswalk",
   "version": "0.1.0",
-  "built_utc": "2026-11-13T03:52:09Z"
+  "built_utc": "2026-11-13T04:34:19Z"
  },
  "body": {
   "name": "Mars",
@@ -85,7 +85,22 @@
     "name": "HiRISE DTM PSP_005533_1975_PSP_005388_1975",
     "credit": "NASA/USGS/University of Arizona HiRISE",
     "url": "https://astrogeo-ard.s3.us-west-2.amazonaws.com/mars/mro/hirise/controlled/dtm/PSP_005533_1975_PSP_005388_1975/DTEEC_005533_1975_005388_1975_A01.tif"
-   }
+   },
+   "texture": "ring_3km_tex.png",
+   "texture_sources": [
+    {
+     "id": "ctx_robbins_6mpp",
+     "name": "CTX global quad mosaics, 6 m",
+     "credit": "NASA/JPL/MSSS CTX; Robbins equirectangular quad mosaics (hosted by USGS Astrogeology)",
+     "url": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Mars/Mars_MRO_CTX_Equi_Mosaics_Robbins/"
+    },
+    {
+     "id": "hirise_ortho_25cm",
+     "name": "HiRISE orthophoto PSP_005388_1975_RED_C_01_ORTHO.tif",
+     "credit": "NASA/USGS/University of Arizona HiRISE",
+     "url": "https://astrogeo-ard.s3.us-west-2.amazonaws.com/mars/mro/hirise/controlled/dtm/PSP_005533_1975_PSP_005388_1975/PSP_005388_1975_RED_C_01_ORTHO.tif"
+    }
+   ]
   },
   {
    "id": "ring_6km",
@@ -111,7 +126,16 @@
     "name": "HiRISE DTM PSP_005533_1975_PSP_005388_1975",
     "credit": "NASA/USGS/University of Arizona HiRISE",
     "url": "https://astrogeo-ard.s3.us-west-2.amazonaws.com/mars/mro/hirise/controlled/dtm/PSP_005533_1975_PSP_005388_1975/DTEEC_005533_1975_005388_1975_A01.tif"
-   }
+   },
+   "texture": "ring_6km_tex.png",
+   "texture_sources": [
+    {
+     "id": "ctx_robbins_6mpp",
+     "name": "CTX global quad mosaics, 6 m",
+     "credit": "NASA/JPL/MSSS CTX; Robbins equirectangular quad mosaics (hosted by USGS Astrogeology)",
+     "url": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Mars/Mars_MRO_CTX_Equi_Mosaics_Robbins/"
+    }
+   ]
   },
   {
    "id": "ring_80km",
@@ -137,7 +161,16 @@
     "name": "HRSC+MOLA blended global DEM 200 m",
     "credit": "ESA/DLR HRSC, NASA MOLA, USGS",
     "url": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Mars/HRSC_MOLA_Blend/Mars_HRSC_MOLA_BlendDEM_Global_200mp_v2.tif"
-   }
+   },
+   "texture": "ring_80km_tex.png",
+   "texture_sources": [
+    {
+     "id": "ctx_robbins_100mpp",
+     "name": "CTX global quad mosaics, 100 m",
+     "credit": "NASA/JPL/MSSS CTX; Robbins equirectangular quad mosaics (hosted by USGS Astrogeology)",
+     "url": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Mars/Mars_MRO_CTX_Equi_Mosaics_Robbins/"
+    }
+   ]
   },
   {
    "id": "slope",

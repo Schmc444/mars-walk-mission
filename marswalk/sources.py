@@ -1,7 +1,7 @@
 """Registry of source datasets. Add a new mosaic here, then point a layer at its id."""
 import json, os, urllib.request
 from .bigtiff import RemoteBigTiff
-from .geo import Raster
+from .geo import Raster, ClonRaster
 
 S3 = "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic"
 MMGIS = "https://mars.nasa.gov/mmgis-maps/M20/Layers/json/"
@@ -66,3 +66,27 @@ def use_hirise_site(entry):
                                         credit="NASA/USGS/University of Arizona HiRISE")
     _open.pop("hirise_dtm_1m", None)
     _open.pop("hirise_ortho_25cm", None)
+
+
+CTX_QUADS = S3 + "/Mars/Mars_MRO_CTX_Equi_Mosaics_Robbins/%s/MC%02d_%s.16bit.tif"
+CTX_CREDIT = "NASA/JPL/MSSS CTX; Robbins equirectangular quad mosaics (hosted by USGS Astrogeology)"
+
+
+def ctx_quad_id(lon, lat):
+    """Robbins CTX quad MC08..MC23 covering lon/lat (45 deg wide, +-30 deg lat), or None."""
+    if abs(lat) >= 30:
+        return None
+    return (8 if lat >= 0 else 16) + int(((lon + 180) % 360) // 45)
+
+
+def ctx_raster(quad, res):
+    """res '100mpp' or '6mpp'."""
+    key = "ctx_%s_%d" % (res, quad)
+    if key not in _open:
+        _open[key] = ClonRaster(RemoteBigTiff(CTX_QUADS % (res, quad, res)), "m")
+    return _open[key]
+
+
+def ctx_source(res):
+    return {"id": "ctx_robbins_" + res, "name": "CTX global quad mosaics, " + res.replace("mpp", " m"),
+            "credit": CTX_CREDIT, "url": CTX_QUADS.split("%s")[0]}

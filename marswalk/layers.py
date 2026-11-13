@@ -7,8 +7,8 @@ To add a layer: write a function `def my_layer(ctx): ... return [entry, ...]`, d
 import json, math, os
 import numpy as np
 from PIL import Image
-from .geo import Site, sample_ground_grid
-from .sources import SOURCES, raster, mission_json
+from .geo import Site, sample_ground_grid, sample_axes, block_mean
+from .sources import SOURCES, raster, mission_json, ctx_quad_id, ctx_raster, ctx_source
 
 LAYERS = {}
 ORDER = []
@@ -82,7 +82,57 @@ def route(ctx):
                  source={"id": "m20_traverse", "name": "Mars 2020 traverse (NASA/JPL MMGIS)", "credit": "NASA/JPL"})]
 
 
-def _ring(ctx, rid, title, source, half_m, step_m, block, inner_skip_m, view):
+def _ctx_grid(site, E, S, res, block):
+    """Grayscale CTX brightness on the ground axes (NaN where no quad covers it; quads exist for |lat| < 30)."""
+    lon = site.lon + np.degrees(E / (3396190.0 * site.cos))
+    lat = site.lat - np.degrees(S / 3396190.0)
+    out = np.full((len(S), len(E)), np.nan, "f4")
+    quads = {ctx_quad_id(lo, la) for lo in (lon[0], lon[-1], site.lon) for la in (lat[0], lat[-1], site.lat)}
+    for q in sorted(x for x in quads if x is not None):
+        g, _ = sample_axes(ctx_raster(q, res), site, E, S, block, nodata_below=-30000, keep_nan=True)
+        out = np.where(np.isnan(out), g, out)
+    return out
+
+
+def _texture(ctx, rid, half_m, out_px, res, block, hirise=False):
+    """Grayscale albedo texture for a ring: CTX everywhere it exists, HiRISE 25 cm (matched to CTX) where the site has it."""
+    E = np.linspace(-half_m, half_m, out_px)
+    base = _ctx_grid(ctx.site, E, E, res, block)
+    srcs = []
+    if not np.isnan(base).all():
+        srcs.append(ctx_source(res))
+    if hirise:
+        ho = raster("hirise_ortho_25cm")
+        step = E[1] - E[0]
+        hb = max(1, int(round(step / 0.25)))
+        hi = np.full_like(base, np.nan)
+        rows = 250
+        for r0 in range(0, out_px, rows):
+            band, _ = sample_axes(ho, ctx.site, E, E[r0:r0 + rows], hb, nodata_below=0.5, keep_nan=True)
+            hi[r0:r0 + rows] = band
+        v = ~np.isnan(hi)
+        if v.mean() > 0.001:
+            srcs.append(dict(id="hirise_ortho_25cm", name=SOURCES["hirise_ortho_25cm"]["name"], credit=SOURCES["hirise_ortho_25cm"]["credit"], url=SOURCES["hirise_ortho_25cm"]["url"]))
+            k = 4
+            b4, h4 = block_mean(base, k), block_mean(np.where(v, hi, np.nan), k)
+            m = ~np.isnan(b4) & ~np.isnan(h4)
+            if m.sum() > 100 and h4[m].std() > 0:
+                a = b4[m].std() / h4[m].std()
+                hi = (hi - h4[m].mean()) * a + b4[m].mean()
+            elif np.isnan(base).all():
+                pass
+            base = np.where(v, hi, base)
+    if np.isnan(base).all():
+        print("  no CTX/HiRISE brightness available for %s (outside +-30 deg lat?): ring left untextured" % rid)
+        return None, []
+    lo, hi_ = np.nanpercentile(base, [1, 99])
+    t = np.clip((np.nan_to_num(base, nan=float(np.nanmedian(base))) - lo) / max(hi_ - lo, 1e-6), 0, 1)
+    name = rid + "_tex.png"
+    Image.fromarray((t * 255 + 0.5).astype("u1")).save(ctx.path(name))
+    return name, srcs
+
+
+def _ring(ctx, rid, title, source, half_m, step_m, block, inner_skip_m, view, tex=None):
     h, bad = sample_ground_grid(raster(source), ctx.site, half_m, step_m, block, keep_nan=True)
     if bad:
         g, _ = sample_ground_grid(raster("hrsc_mola_200m"), ctx.site, half_m, step_m, 1, keep_nan=True)
@@ -90,27 +140,35 @@ def _ring(ctx, rid, title, source, half_m, step_m, block, inner_skip_m, view):
         print("  %.0f%% of %s outside the DTM, filled from the 200 m global DEM" % (bad * 100, rid))
     h = (np.nan_to_num(h, nan=ctx.scene["center_elevation_m"]) - ctx.scene["center_elevation_m"]).astype("f4")
     h.tofile(ctx.path(rid + ".f32"))
-    return [dict(id=rid, title=title, kind="elevation", role="ring", file=rid + ".f32", dtype="f32", samples=h.shape[0],
-                 step_m=step_m, half_m=half_m, unit="m", relative_to="origin elevation", min=float(h.min()),
-                 max=float(h.max()), inner_skip_m=inner_skip_m, view=view, source=src(source))]
+    e = dict(id=rid, title=title, kind="elevation", role="ring", file=rid + ".f32", dtype="f32", samples=h.shape[0],
+             step_m=step_m, half_m=half_m, unit="m", relative_to="origin elevation", min=float(h.min()),
+             max=float(h.max()), inner_skip_m=inner_skip_m, view=view, source=src(source))
+    if tex:
+        name, srcs = _texture(ctx, rid, half_m, **tex)
+        if name:
+            e["texture"], e["texture_sources"] = name, srcs
+    return [e]
 
 
 @layer("ring_3km", requires=("terrain",))
 def ring_3km(ctx):
     return _ring(ctx, "ring_3km", "Near field (3 km, 6 m)", "hirise_dtm_1m", 3000, 6, 6, ctx.size_m / 2 - 8.0,
-                 dict(subsample=3, lower_m=2.5))
+                 dict(subsample=3, lower_m=2.5),
+                 tex=dict(out_px=4000, res="6mpp", block=1, hirise=True))
 
 
 @layer("ring_6km", requires=("terrain",))
 def ring_6km(ctx):
     return _ring(ctx, "ring_6km", "Mid field (6 km, 12 m)", "hirise_dtm_1m", 6000, 12, 12, 2990.0,
-                 dict(subsample=3, lower_m=3.0))
+                 dict(subsample=3, lower_m=3.0),
+                 tex=dict(out_px=1000, res="6mpp", block=2))
 
 
 @layer("ring_80km", requires=("terrain",))
 def ring_80km(ctx):
     return _ring(ctx, "ring_80km", "Far field (80 km, 160 m)", "hrsc_mola_200m", 80000, 160, 1, 5990.0,
-                 dict(subsample=2, lower_m=6.0))
+                 dict(subsample=2, lower_m=6.0),
+                 tex=dict(out_px=1001, res="100mpp", block=2))
 
 
 @layer("slope", requires=("terrain",))
