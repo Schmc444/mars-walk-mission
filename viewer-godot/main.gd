@@ -297,7 +297,7 @@ void fragment() {
 		if rg["stats"]:
 			var im := img.duplicate()
 			im.convert(Image.FORMAT_L8)
-			var px := im.get_data()
+			var px: PackedByteArray = im.get_data()
 			var m := 0.0
 			for i in range(px.size()):
 				m += px[i]
