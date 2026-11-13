@@ -132,11 +132,14 @@ def _texture(ctx, rid, half_m, out_px, res, block, hirise=False):
     return name, srcs
 
 
-def _gauss(a, sigma):
+def _gauss(a, sigma, mode="constant"):
     n = a.shape[0]
-    k = np.fft.fftfreq(n)
+    pad = min(n, int(4 * sigma) + 1)
+    ap = np.pad(a, pad, mode=mode)
+    m = ap.shape[0]
+    k = np.fft.fftfreq(m)
     g = np.exp(-2 * (np.pi * sigma) ** 2 * (k[:, None] ** 2 + k[None, :] ** 2))
-    return np.real(np.fft.ifft2(np.fft.fft2(a) * g))
+    return np.real(np.fft.ifft2(np.fft.fft2(ap) * g))[pad:pad + n, pad:pad + n]
 
 
 def _erode(v, r):
@@ -162,7 +165,7 @@ def _offset_field(v, d):
 
 def _fill_with_global(h, g):
     """Merge a gappy DTM with the smoothed global DEM, leaving no steps at the DTM border."""
-    g = _gauss(np.nan_to_num(g, nan=float(np.nanmean(g))), 3)
+    g = _gauss(np.nan_to_num(g, nan=float(np.nanmean(g))), 3, mode="edge")
     v = _erode(~np.isnan(h), 2)
     d = np.where(v, np.nan_to_num(h) - g, 0.0)
     off = _offset_field(v, d)
