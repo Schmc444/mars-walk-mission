@@ -35,6 +35,34 @@ func layer_entry(id: String) -> Dictionary:
 	return {}
 
 
+func ring_gain_at_patch() -> Dictionary:
+	# brightness the 3 km ring texture has around the origin (relative to its mean), so the patch can match it
+	var e := layer_entry("ring_3km")
+	var out := {"gain": 1.0, "stats": false}
+	if e.is_empty() or not e.has("texture"):
+		return out
+	var timg := Image.load_from_file(ProjectSettings.globalize_path(PATCH + str(e["texture"])))
+	if timg == null:
+		return out
+	timg.convert(Image.FORMAT_L8)
+	var d8 := timg.get_data()
+	var sum := 0.0
+	for i in range(0, d8.size(), 7):
+		sum += d8[i]
+	var mean := maxf(sum / (d8.size() / 7.0) / 255.0, 0.01)
+	var w := timg.get_width()
+	var r := maxi(int(half / float(e["half_m"]) * w * 2.0), 4)
+	var csum := 0.0
+	var n := 0
+	for y in range(w / 2 - r, w / 2 + r):
+		for x in range(w / 2 - r, w / 2 + r):
+			csum += timg.get_pixel(x, y).r
+			n += 1
+	out["gain"] = pow(clampf(csum / n / mean, 0.4, 1.7), 1.25)
+	out["stats"] = true
+	return out
+
+
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--patch="):
@@ -163,6 +191,10 @@ varying float slope;
 varying vec2 wpos;
 uniform vec3 far_albedo = vec3(0.2, 0.14, 0.1);
 uniform float patch_half = 50.0;
+uniform bool stats = false;
+uniform float o_mean = 0.5;
+uniform float o_std = 0.15;
+uniform float ring_gain = 1.0;
 uniform vec2 shadow_dir = vec2(-0.64, -0.76); // horizontal direction the sunlight travels (x, z)
 varying float vdist;
 void vertex() { slope = degrees(acos(clamp(NORMAL.y, 0.0, 1.0))); wpos = VERTEX.xz; }
@@ -205,6 +237,11 @@ void fragment() {
   float c = clamp((g - 0.227) / 0.313, 0.0, 1.0);
   vec3 dark = vec3(0.07, 0.042, 0.027);
   vec3 bright = vec3(0.3, 0.16, 0.08);
+  if (stats) {
+    c = clamp(0.5 + (g - o_mean) / (3.5 * o_std), 0.0, 1.0);
+    dark = far_albedo * ring_gain * 0.6;
+    bright = far_albedo * ring_gain * 1.3;
+  }
   float near = 1.0 - smoothstep(25.0, 70.0, length(VERTEX));
   d = mix(vn(wpos*6.0)*0.5 + vn(wpos*23.0)*0.3 + 0.1, d, near);
   vec3 base = mix(dark, bright, c) * (0.85 + 0.3 * d);
@@ -212,7 +249,7 @@ void fragment() {
   float hv = vn(wpos * vec2(0.22, 0.5) + 3.1) * 0.6 + vn(wpos * 1.4 + 9.0) * 0.4;
   base *= mix(vec3(0.9, 0.93, 1.0), vec3(1.07, 1.0, 0.93), smoothstep(0.25, 0.75, hv));
   float edge = max(abs(wpos.x), abs(wpos.y));
-  base = mix(base, far_albedo * (0.8 + 0.4 * d), smoothstep(patch_half - 20.0, patch_half - 1.0, edge));
+  base = mix(base, far_albedo * (stats ? ring_gain : 1.0) * (0.8 + 0.4 * d), smoothstep(patch_half - 20.0, patch_half - 1.0, edge));
   if (hazard) {
     float t = smoothstep(hazard_deg*0.6, hazard_deg*1.3, slope);
     base = mix(base, vec3(0.9,0.1,0.1), t*0.65);
@@ -255,6 +292,23 @@ void fragment() {
 	terrain_mat.set_shader_parameter("hazard_deg", HAZARD_DEG)
 	terrain_mat.set_shader_parameter("far_albedo", Vector3(FAR_ALBEDO.r, FAR_ALBEDO.g, FAR_ALBEDO.b))
 	terrain_mat.set_shader_parameter("patch_half", half)
+	if scene.get("show_rover", true) == false:
+		var rg := ring_gain_at_patch()
+		if rg["stats"]:
+			var im := img.duplicate()
+			im.convert(Image.FORMAT_L8)
+			var px := im.get_data()
+			var m := 0.0
+			for i in range(px.size()):
+				m += px[i]
+			m /= px.size() * 255.0
+			var v := 0.0
+			for i in range(px.size()):
+				v += pow(px[i] / 255.0 - m, 2.0)
+			terrain_mat.set_shader_parameter("stats", true)
+			terrain_mat.set_shader_parameter("o_mean", m)
+			terrain_mat.set_shader_parameter("o_std", maxf(sqrt(v / px.size()), 0.02))
+			terrain_mat.set_shader_parameter("ring_gain", rg["gain"])
 	terrain_mat.set_shader_parameter("shadow_dir", sun_dir_xz)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
