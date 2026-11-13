@@ -6,7 +6,7 @@
  "generator": {
   "name": "marswalk",
   "version": "0.1.0",
-  "built_utc": "2026-11-13T05:47:29Z"
+  "built_utc": "2026-11-13T06:06:06Z"
  },
  "body": {
   "name": "Mars",
@@ -51,8 +51,8 @@
    "half_m": 3000,
    "unit": "m",
    "relative_to": "origin elevation",
-   "min": -284.5907287597656,
-   "max": 904.4027709960938,
+   "min": -284.69525146484375,
+   "max": 904.4371337890625,
    "inner_skip_m": 37.0,
    "view": {
     "subsample": 3,
@@ -92,8 +92,8 @@
    "half_m": 6000,
    "unit": "m",
    "relative_to": "origin elevation",
-   "min": -377.4020080566406,
-   "max": 882.3910522460938,
+   "min": -377.2918701171875,
+   "max": 885.6484985351562,
    "inner_skip_m": 2990.0,
    "view": {
     "subsample": 3,
@@ -127,7 +127,7 @@
    "half_m": 80000,
    "unit": "m",
    "relative_to": "origin elevation",
-   "min": -9003.98828125,
+   "min": -9003.9873046875,
    "max": 931.59765625,
    "inner_skip_m": 5990.0,
    "view": {
