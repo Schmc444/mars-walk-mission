@@ -6,7 +6,7 @@
  "generator": {
   "name": "marswalk",
   "version": "0.1.0",
-  "built_utc": "2026-11-13T04:34:19Z"
+  "built_utc": "2026-11-13T05:47:29Z"
  },
  "body": {
   "name": "Mars",
@@ -40,28 +40,6 @@
    }
   },
   {
-   "id": "ortho",
-   "title": "Orbital photo (25 cm)",
-   "kind": "image",
-   "file": "ortho.png",
-   "samples": 361,
-   "step_m": 0.25,
-   "half_m": 45.0,
-   "source": {
-    "id": "hirise_ortho_25cm",
-    "name": "HiRISE orthophoto PSP_005388_1975_RED_C_01_ORTHO.tif",
-    "credit": "NASA/USGS/University of Arizona HiRISE",
-    "url": "https://astrogeo-ard.s3.us-west-2.amazonaws.com/mars/mro/hirise/controlled/dtm/PSP_005533_1975_PSP_005388_1975/PSP_005388_1975_RED_C_01_ORTHO.tif"
-   }
-  },
-  {
-   "id": "route",
-   "title": "Route (none for this site)",
-   "kind": "polylines",
-   "file": "route_local.json",
-   "frame": "ground_m"
-  },
-  {
    "id": "ring_3km",
    "title": "Near field (3 km, 6 m)",
    "kind": "elevation",
@@ -73,8 +51,8 @@
    "half_m": 3000,
    "unit": "m",
    "relative_to": "origin elevation",
-   "min": -227.70703125,
-   "max": 959.078125,
+   "min": -284.5907287597656,
+   "max": 904.4027709960938,
    "inner_skip_m": 37.0,
    "view": {
     "subsample": 3,
@@ -114,8 +92,8 @@
    "half_m": 6000,
    "unit": "m",
    "relative_to": "origin elevation",
-   "min": -324.169921875,
-   "max": 957.21875,
+   "min": -377.4020080566406,
+   "max": 882.3910522460938,
    "inner_skip_m": 2990.0,
    "view": {
     "subsample": 3,
@@ -149,8 +127,8 @@
    "half_m": 80000,
    "unit": "m",
    "relative_to": "origin elevation",
-   "min": -8979.0849609375,
-   "max": 956.5,
+   "min": -9003.98828125,
+   "max": 931.59765625,
    "inner_skip_m": 5990.0,
    "view": {
     "subsample": 2,
@@ -171,21 +149,6 @@
      "url": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Mars/Mars_MRO_CTX_Equi_Mosaics_Robbins/"
     }
    ]
-  },
-  {
-   "id": "slope",
-   "title": "Slope",
-   "kind": "scalar",
-   "file": "slope.f32",
-   "dtype": "f32",
-   "samples": 91,
-   "step_m": 1.0,
-   "half_m": 45.0,
-   "unit": "deg",
-   "min": 0.11190567165613174,
-   "max": 17.404983520507812,
-   "hazard_deg": 15.0,
-   "derived_from": "terrain"
   }
  ]
 }
