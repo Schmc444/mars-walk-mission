@@ -7,15 +7,17 @@ SCHEMA = 1
 
 
 def make_manifest(wp, entries, extra=None):
-    rasters = [e for e in entries if e["kind"] != "polylines"]
+    rover = wp.get("sol") is not None
     return {
         "schema": SCHEMA,
-        "id": "m20_sol%d_site%d_drive%d" % (wp["sol"], wp["site"], wp["drive"]),
+        "id": ("m20_sol%d_site%d_drive%d" % (wp["sol"], wp["site"], wp["drive"])) if rover else wp["id"],
+        "label": ("Sol %d · site %d drive %d" % (wp["sol"], wp["site"], wp["drive"])) if rover else wp["label"],
+        "show_rover": rover,
         "generator": {"name": "marswalk", "version": __version__,
                       "built_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")},
         "body": {"name": "Mars", "radius_m": R},
         "axes": "x east, z south, y up, ground metres, origin = waypoint; raster row 0 = north, grids centred on origin",
-        "origin": {k: wp[k] for k in ("sol", "site", "drive", "lon", "lat", "roll", "pitch", "yaw") if k in wp},
+        "origin": {k: wp.get(k, 0.0 if k == "yaw" else None) for k in ("sol", "site", "drive", "lon", "lat", "roll", "pitch", "yaw") if k in wp or k == "yaw"},
         "layers": entries,
         **(extra or {}),
     }

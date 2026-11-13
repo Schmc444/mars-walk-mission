@@ -53,3 +53,16 @@ def find_waypoint(sol, site, drive):
         if p["sol"] == sol and p["site"] == site and p["drive"] == drive:
             return p
     raise KeyError("no waypoint sol=%s site=%s drive=%s" % (sol, site, drive))
+
+
+def use_hirise_site(entry):
+    """Point the hirise_dtm_1m / hirise_ortho_25cm sources at one site of data/hirise_dtm_index.json."""
+    from .catalog import BUCKET
+    assert entry.get("dtm") and entry.get("ortho"), "site has no DTM/ortho"
+    red = [k for k in entry["ortho"] if "_RED_A_" in k] or entry["ortho"]
+    SOURCES["hirise_dtm_1m"] = dict(url="%s/%s" % (BUCKET, entry["dtm"]), unit="m", name="HiRISE DTM %s" % entry["id"],
+                                    credit="NASA/USGS/University of Arizona HiRISE")
+    SOURCES["hirise_ortho_25cm"] = dict(url="%s/%s" % (BUCKET, red[0]), unit="m", name="HiRISE orthophoto %s" % red[0].split("/")[-1],
+                                        credit="NASA/USGS/University of Arizona HiRISE")
+    _open.pop("hirise_dtm_1m", None)
+    _open.pop("hirise_ortho_25cm", None)

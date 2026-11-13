@@ -4,9 +4,40 @@ from .scene import make_manifest, write_manifest, validate
 from .sources import find_waypoint
 
 
+def site_waypoint(a):
+    """Pick an origin inside a HiRISE DTM: --lon/--lat if given, else the centre-most 91x91 m patch with valid data."""
+    import numpy as np
+    from .sources import use_hirise_site, raster
+    from .geo import Site, sample_ground_grid
+    idx = json.load(open(INDEX))
+    e = next(x for x in idx["sites"] if x["id"] == a.site)
+    use_hirise_site(e)
+    cl, ct = (e["lon_w"] + e["lon_e"]) / 2, (e["lat_n"] + e["lat_s"]) / 2
+    if a.lon is not None:
+        cands = [(a.lon, a.lat)]
+    else:
+        cands = [(cl + i * (e["lon_e"] - e["lon_w"]) * 0.05, ct + j * (e["lat_n"] - e["lat_s"]) * 0.05)
+                 for i in range(-8, 9) for j in range(-8, 9)]
+        cands.sort(key=lambda c: abs(c[0] - cl) + abs(c[1] - ct))
+    for lon, lat in cands:
+        try:
+            g, bad = sample_ground_grid(raster("hirise_dtm_1m"), Site(lon, lat), a.size / 2 + 5, 1.0, keep_nan=True)
+        except Exception:
+            continue
+        if bad == 0:
+            print("origin lon %.5f lat %.5f" % (lon, lat))
+            return dict(id="hirise_%s_%.4f_%.4f" % (e["id"], lon, lat), label="%s  (%.3f, %.3f)" % (e["id"], lon, lat),
+                        lon=lon, lat=lat, yaw=0.0)
+    raise SystemExit("no valid DTM patch found; pass --lon/--lat explicitly")
+
+
 def build(a):
-    wp = find_waypoint(a.sol, a.site, a.drive)
-    out = a.out or "viewer-godot/scene_sol%d" % a.sol
+    if a.site:
+        wp = site_waypoint(a)
+        out = a.out or "viewer-godot/scene_" + a.site
+    else:
+        wp = find_waypoint(a.sol, a.site_no, a.drive)
+        out = a.out or "viewer-godot/scene_sol%d" % a.sol
     os.makedirs(out, exist_ok=True)
     ctx = L.Context(wp, out, a.size)
     want = a.layers.split(",") if a.layers else list(L.ORDER)
@@ -79,7 +110,9 @@ def main():
     ap = argparse.ArgumentParser(prog="marswalk", description="Generate walkable Mars scenes from orbital data.")
     sp = ap.add_subparsers(dest="cmd", required=True)
     b = sp.add_parser("build", help="build a scene for a rover waypoint")
-    b.add_argument("sol", type=int); b.add_argument("site", type=int); b.add_argument("drive", type=int)
+    b.add_argument("sol", type=int, nargs="?"); b.add_argument("site_no", type=int, nargs="?"); b.add_argument("drive", type=int, nargs="?")
+    b.add_argument("--site", help="HiRISE DTM id from data/hirise_dtm_index.json (instead of a rover waypoint)")
+    b.add_argument("--lon", type=float); b.add_argument("--lat", type=float)
     b.add_argument("--out"); b.add_argument("--size", type=int, default=90, help="walkable patch size in m")
     b.add_argument("--layers", help="comma list; default all. See `marswalk layers`")
     b.set_defaults(fn=build)

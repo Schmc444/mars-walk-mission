@@ -73,7 +73,7 @@ func _cli_camera() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--cam="):
 			var v := a.substr(6).split_floats(",")
-			var az := deg_to_rad(float(meta["waypoint"]["yaw"]))
+			var az := deg_to_rad(float(meta["waypoint"].get("yaw", 0.0)))
 			var f := Vector3(sin(az), 0, -cos(az))
 			var r := Vector3(-f.z, 0, f.x) * -1.0
 			r = f.cross(Vector3.UP)
@@ -496,7 +496,7 @@ func _route() -> void:
 	add_child(mi)
 	var wp: Dictionary = meta["waypoint"]
 	var l := Label3D.new()
-	l.text = "Sol %d · site %d drive %d" % [wp["sol"], wp["site"], wp["drive"]]
+	l.text = str(scene.get("label", "origin"))
 	l.font_size = 64
 	l.pixel_size = 0.006
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -592,7 +592,7 @@ func _process(delta: float) -> void:
 	p.z = clampf(p.z, -LIMIT, LIMIT)
 	p.y = height_at(p.x, p.z)
 	origin.position = p
-	hud.text = "Mars Route Walker · sol %d · pendiente aquí %.1f° · H: capa de peligro %s\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm · rocas SINTÉTICAS (ilustrativas)" % [meta["waypoint"]["sol"], slope_deg(p.x, p.z), "ON" if hazard_on else "off"]
+	hud.text = "Mars Route Walker · %s · pendiente aquí %.1f° · H: capa de peligro %s\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm · rocas SINTÉTICAS (ilustrativas)" % [str(scene.get("label", "")), slope_deg(p.x, p.z), "ON" if hazard_on else "off"]
 
 
 func _farfield() -> void:
@@ -704,7 +704,7 @@ func _rover() -> void:
 	_collect_aabb(holder, holder, acc)
 	var bb: AABB = acc[0]
 	scene.position = Vector3(-(bb.position.x + bb.size.x / 2.0), -bb.position.y, -(bb.position.z + bb.size.z / 2.0))
-	var az := deg_to_rad(float(meta["waypoint"]["yaw"]))
+	var az := deg_to_rad(float(meta["waypoint"].get("yaw", 0.0)))
 	var fwd := Vector3(sin(az), 0, -cos(az))
 	var hs := [height_at(0, 0), height_at(1.3, 1.5), height_at(-1.3, 1.5), height_at(1.3, -1.5), height_at(-1.3, -1.5)]
 	var gx := (height_at(1.5, 0) - height_at(-1.5, 0)) / 3.0

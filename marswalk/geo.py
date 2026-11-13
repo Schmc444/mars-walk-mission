@@ -59,7 +59,7 @@ def bilinear(img, ix, iy):
     return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty
 
 
-def sample_ground_grid(raster, site, half_m, step_m, block=1, nodata_below=-1e30):
+def sample_ground_grid(raster, site, half_m, step_m, block=1, nodata_below=-1e30, keep_nan=False):
     """Resample a mosaic onto the scene's ground grid (n x n, row 0 = north). `block` pre-averages source pixels
     (use for coarse rings so fine detail is averaged, not aliased). Returns float32 (n, n)."""
     _, _, lon, lat = site.axis_lonlat(half_m, step_m)
@@ -68,14 +68,21 @@ def sample_ground_grid(raster, site, half_m, step_m, block=1, nodata_below=-1e30
     c0, r0 = int(math.floor(fx.min())) - pad, int(math.floor(fy.min())) - pad
     c1, r1 = int(math.ceil(fx.max())) + pad, int(math.ceil(fy.max())) + pad
     t = raster.tif
-    if c0 < 0 or r0 < 0 or c1 > t.width or r1 > t.height:
+    inside = (fx >= 0)[None, :] & (fx <= t.width)[None, :] & (fy >= 0)[:, None] & (fy <= t.height)[:, None]
+    if (c0 < 0 or r0 < 0 or c1 > t.width or r1 > t.height) and not keep_nan:
         raise ValueError("requested area leaves the source mosaic")
+    c0, r0, c1, r1 = max(c0, 0), max(r0, 0), min(c1, t.width), min(r1, t.height)
+    if c1 - c0 < 2 or r1 - r0 < 2:
+        return np.full((len(lat), len(lon)), np.nan, "f4"), 1.0
     win = t.window(c0, r0, c1 - c0, r1 - r0).astype("f4")
     win[win < nodata_below] = np.nan
     win = block_mean(win, block)
     ix, iy = (fx - c0) / block - 0.5, (fy - r0) / block - 0.5
     out = bilinear(win, ix, iy)
+    out[~inside] = np.nan
     bad = np.isnan(out)
+    if keep_nan:
+        return out.astype("f4"), float(bad.mean())
     if bad.any():
         out[bad] = np.nanmin(out) if not bad.all() else 0
     return out.astype("f4"), float(bad.mean())

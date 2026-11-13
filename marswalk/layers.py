@@ -58,6 +58,9 @@ def ortho(ctx):
     k = 4
     half = ctx.size_m / 2
     o, _ = sample_ground_grid(raster("hirise_ortho_25cm"), ctx.site, half, 1.0 / k)
+    if raster("hirise_ortho_25cm").tif.dtype != "u1":
+        lo, hi = np.percentile(o[o > 0], [1, 99.5]) if (o > 0).any() else (0, 1)
+        o = (o - lo) / max(hi - lo, 1e-6) * 255
     Image.fromarray(np.clip(o + 0.5, 0, 255).astype("u1")).save(ctx.path("ortho.png"))
     return [dict(id="ortho", title="Orbital photo (25 cm)", kind="image", file="ortho.png", samples=o.shape[0],
                  step_m=1.0 / k, half_m=half, source=src("hirise_ortho_25cm"))]
@@ -67,6 +70,9 @@ def ortho(ctx):
 def route(ctx):
     half = ctx.size_m / 2
     segs = []
+    if ctx.wp.get("sol") is None:
+        json.dump(segs, open(ctx.path("route_local.json"), "w"))
+        return [dict(id="route", title="Route (none for this site)", kind="polylines", file="route_local.json", frame="ground_m")]
     for f in mission_json("M20_traverse.json")["features"]:
         pts = [[round(v, 2) for v in ctx.site.to_ground(lon, lat)] for lon, lat, *_ in f["geometry"]["coordinates"]]
         if any(abs(p[0]) <= half and abs(p[1]) <= half for p in pts):
@@ -77,8 +83,12 @@ def route(ctx):
 
 
 def _ring(ctx, rid, title, source, half_m, step_m, block, inner_skip_m, view):
-    h, bad = sample_ground_grid(raster(source), ctx.site, half_m, step_m, block)
-    h = (h - ctx.scene["center_elevation_m"]).astype("f4")
+    h, bad = sample_ground_grid(raster(source), ctx.site, half_m, step_m, block, keep_nan=True)
+    if bad:
+        g, _ = sample_ground_grid(raster("hrsc_mola_200m"), ctx.site, half_m, step_m, 1, keep_nan=True)
+        h = np.where(np.isnan(h), g, h)
+        print("  %.0f%% of %s outside the DTM, filled from the 200 m global DEM" % (bad * 100, rid))
+    h = (np.nan_to_num(h, nan=ctx.scene["center_elevation_m"]) - ctx.scene["center_elevation_m"]).astype("f4")
     h.tofile(ctx.path(rid + ".f32"))
     return [dict(id=rid, title=title, kind="elevation", role="ring", file=rid + ".f32", dtype="f32", samples=h.shape[0],
                  step_m=step_m, half_m=half_m, unit="m", relative_to="origin elevation", min=float(h.min()),
