@@ -63,7 +63,18 @@ func ring_gain_at_patch() -> Dictionary:
 	return out
 
 
+var W: WorldStreamer
+var world_mode := false
+var ride_s := 0.0
+var riding := true
+var world_speed := 0.0
+
+
 func _ready() -> void:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--world="):
+			_ready_world(a.substr(8))
+			return
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--patch="):
 			PATCH = "res://" + a.substr(8) + "/"
@@ -94,6 +105,102 @@ func _ready() -> void:
 
 var shot_path := ""
 var shot_frames := 0
+
+
+func _ready_world(dir: String) -> void:
+	world_mode = true
+	var args := OS.get_cmdline_user_args()
+	_environment()
+	W = WorldStreamer.new()
+	add_child(W)
+	W.setup(dir)
+	_setup_player()
+	_setup_xr()
+	_hud()
+	var start := Vector2.ZERO
+	for a in args:
+		if a.begins_with("--sol="):
+			start = W.route_pos(W.route_s_of_sol(int(a.get_slice("=", 1))))
+			ride_s = W.route_s_of_sol(int(a.get_slice("=", 1)))
+		elif a.begins_with("--at="):
+			var v := a.substr(5).split_floats(",")
+			start = Vector2(v[0], v[1])
+			riding = false
+		elif a.begins_with("--shot="):
+			shot_path = a.substr(7)
+		elif a.begins_with("--cam="):
+			var v := a.substr(6).split_floats(",")
+			yaw = -deg_to_rad(v[0])
+			pitch = deg_to_rad(v[1])
+			cam.fov = v[2]
+	origin.position = Vector3(start.x, W.height_at(start.x, start.y), start.y)
+	W.focus = origin.position
+	if "--test" in args:
+		_world_test()
+
+
+func _world_test() -> void:
+	var t0 := Time.get_ticks_msec()
+	while not W.is_ready() and Time.get_ticks_msec() - t0 < 120000:
+		await get_tree().process_frame
+		W.focus = origin.position
+	var nodes := 0
+	var tris := 0
+	for c in W.get_children():
+		if c is MeshInstance3D:
+			nodes += 1
+			tris += (c.mesh as ArrayMesh).surface_get_array_index_len(0) / 3
+	print("TEST world tiles=%d route_len=%.0f m sol_max=%d meshes=%d tris=%d ready=%s in %.1fs h(0,0)=%.2f"
+		% [W.tiles.size(), W.route_length(), W.route_sol[W.route_sol.size() - 1], nodes, tris, W.is_ready(), (Time.get_ticks_msec() - t0) / 1000.0, W.height_at(0, 0)])
+	var ing := W.lonlat_to_world(77.322539, 18.497263)
+	print("TEST ingenuity world=(%.1f, %.1f) h=%.1f nearest route s=%.0f sol=%d" % [ing.x, ing.y, W.height_at(ing.x, ing.y), W.route_nearest_s(ing), W.route_sol_at(W.route_nearest_s(ing))])
+	get_tree().quit()
+
+
+func _process_world(delta: float) -> void:
+	if shot_path != "":
+		shot_frames += 1
+		if shot_frames > 60 and W.is_ready() and shot_frames > 120:
+			get_viewport().get_texture().get_image().save_png(shot_path)
+			get_tree().quit()
+	var p := origin.position
+	if in_xr:
+		var fwd := -cam.global_transform.basis.z
+		fwd.y = 0.0
+		fwd = fwd.normalized()
+		var rgt := fwd.cross(Vector3.UP)
+		var mv := left.get_vector2("primary")
+		if riding:
+			world_speed = mv.y * 12.0
+		else:
+			p += (fwd * mv.y + rgt * mv.x) * delta * 2.2
+		var tx := right.get_vector2("primary").x
+		if absf(tx) > 0.7 and snap_ready:
+			origin.rotate_y(-signf(tx) * PI / 6.0)
+			snap_ready = false
+		elif absf(tx) < 0.3:
+			snap_ready = true
+	else:
+		cam.rotation = Vector3(pitch, yaw, 0)
+		var d := Vector3.ZERO
+		if Input.is_key_pressed(KEY_W): d.z -= 1
+		if Input.is_key_pressed(KEY_S): d.z += 1
+		if Input.is_key_pressed(KEY_A): d.x -= 1
+		if Input.is_key_pressed(KEY_D): d.x += 1
+		var spd := 20.0 if Input.is_key_pressed(KEY_SHIFT) else 2.2
+		if riding:
+			world_speed = -d.z * 12.0
+		else:
+			p += Basis(Vector3.UP, yaw) * d * delta * spd
+	if riding:
+		ride_s = clampf(ride_s + world_speed * delta, 0.0, W.route_length())
+		var rp := W.route_pos(ride_s)
+		p.x = rp.x
+		p.z = rp.y
+	p.y = W.height_at(p.x, p.z)
+	origin.position = p
+	W.focus = p
+	hud.text = "Mars Route Walker · sol %d · %s · %.0f m de ruta · pendiente %.1f° · H: peligro %s · G: bajar/subir del rover\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm" % [W.route_sol_at(ride_s), "en el rover" if riding else "a pie", ride_s, W.slope_deg(p.x, p.z), "ON" if hazard_on else "off"]
 
 
 func _cli_camera() -> void:
@@ -181,111 +288,7 @@ func _terrain() -> MeshInstance3D:
 		img = Image.load_from_file(PATCH + ortho_file)
 	img.generate_mipmaps()
 	var tex := ImageTexture.create_from_image(img)
-	var sh := Shader.new()
-	sh.code = """
-shader_type spatial;
-uniform sampler2D ortho : filter_linear_mipmap_anisotropic;
-uniform bool hazard = false;
-uniform float hazard_deg = 15.0;
-varying float slope;
-varying vec2 wpos;
-uniform vec3 far_albedo = vec3(0.2, 0.14, 0.1);
-uniform float patch_half = 50.0;
-uniform bool stats = false;
-uniform float o_mean = 0.5;
-uniform float o_std = 0.15;
-uniform float ring_gain = 1.0;
-uniform vec2 shadow_dir = vec2(-0.64, -0.76); // horizontal direction the sunlight travels (x, z)
-varying float vdist;
-void vertex() { slope = degrees(acos(clamp(NORMAL.y, 0.0, 1.0))); wpos = VERTEX.xz; }
-float h21(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
-float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
-  return mix(mix(h21(i),h21(i+vec2(1,0)),f.x), mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x), f.y); }
-// One pebble layer: a rotated, domain-warped jittered grid with at most one pebble per cell.
-// Cell presence follows a clustered density field, centres jitter across the whole cell, each
-// pebble is an ellipse of random size/orientation, so no lattice survives. Returns pebble height
-// (0..1); grad = world-space height gradient (bump), ao = contact darkening just outside the rim.
-float peb(vec2 p, float cell, float ang, float dens, out vec2 grad, out float tone, out float ao) {
-  mat2 R = mat2(vec2(cos(ang), sin(ang)), vec2(-sin(ang), cos(ang)));
-  vec2 q = (R * p) / cell; vec2 i = floor(q); vec2 f = fract(q);
-  grad = vec2(0.0); ao = 1.0;
-  tone = h21(i + 5.5);
-  if (h21(i + 1.9) > dens) return 0.0;
-  vec2 c = vec2(h21(i + 7.1), h21(i + 3.3)) * 0.7 + 0.15;
-  float room = min(min(c.x, 1.0 - c.x), min(c.y, 1.0 - c.y));
-  float s = h21(i + 9.7);
-  float rad = min(mix(0.09, 0.42, s * s), room);
-  float a = h21(i + 4.4) * 6.2832;
-  vec2 ax = vec2(cos(a), sin(a));
-  float el = mix(0.55, 1.0, h21(i + 2.6));
-  vec2 dv = f - c;
-  vec2 v = vec2(dot(dv, ax), dot(dv, vec2(-ax.y, ax.x)) / el) / rad;
-  float u2 = dot(v, v);
-  float hs = mix(0.25, 0.6, h21(i + 8.2)); // height/width: flat slabs to rounded pebbles
-  // short cast shadow on the down-sun side (length ~ height / tan(sun elevation))
-  vec2 ds = dv - (R * shadow_dir) * rad * hs * 1.4;
-  vec2 vs = vec2(dot(ds, ax), dot(ds, vec2(-ax.y, ax.x)) / el) / rad;
-  if (u2 >= 1.0) { ao = mix(0.62, 1.0, smoothstep(0.55, 1.1, dot(vs, vs))); return 0.0; }
-  // dh/df of h = 1-u2, then back through the ellipse frame and the layer rotation (cell cancels)
-  vec2 gl = -2.0 * (v.x * ax + (v.y / el) * vec2(-ax.y, ax.x)) / rad;
-  grad = (transpose(R) * gl) * hs * rad;
-  return 1.0 - u2;
-}
-void fragment() {
-  float g = texture(ortho, UV).r;
-  float d = vn(wpos*6.0)*0.5 + vn(wpos*23.0)*0.3 + vn(wpos*91.0)*0.2;
-  float c = clamp((g - 0.227) / 0.313, 0.0, 1.0);
-  vec3 dark = vec3(0.07, 0.042, 0.027);
-  vec3 bright = vec3(0.3, 0.16, 0.08);
-  if (stats) {
-    c = clamp(0.5 + (g - o_mean) / (3.5 * o_std), 0.0, 1.0);
-    dark = far_albedo * ring_gain * 0.6;
-    bright = far_albedo * ring_gain * 1.3;
-  }
-  float near = 1.0 - smoothstep(25.0, 70.0, length(VERTEX));
-  d = mix(vn(wpos*6.0)*0.5 + vn(wpos*23.0)*0.3 + 0.1, d, near);
-  vec3 base = mix(dark, bright, c) * (0.85 + 0.3 * d);
-  // metre-scale tint: greyer basaltic sand vs redder dust, plus a faint wind streak direction
-  float hv = vn(wpos * vec2(0.22, 0.5) + 3.1) * 0.6 + vn(wpos * 1.4 + 9.0) * 0.4;
-  base *= mix(vec3(0.9, 0.93, 1.0), vec3(1.07, 1.0, 0.93), smoothstep(0.25, 0.75, hv));
-  float edge = max(abs(wpos.x), abs(wpos.y));
-  base = mix(base, far_albedo * (stats ? ring_gain : 1.0) * (0.8 + 0.4 * d), smoothstep(patch_half - 20.0, patch_half - 1.0, edge));
-  if (hazard) {
-    float t = smoothstep(hazard_deg*0.6, hazard_deg*1.3, slope);
-    base = mix(base, vec3(0.9,0.1,0.1), t*0.65);
-  }
-  // Pebbles: three rotated, warped layers (granules ~5 mm, pebbles ~1.5 cm, small cobbles ~4 cm),
-  // clustered by a density field that also follows the ortho (darker ground = more clasts).
-  // Each layer fades by its on-screen size (fwidth), so nothing shimmers in the headset.
-  float fw = length(fwidth(wpos));
-  vec2 wp = wpos + (vec2(vn(wpos * 1.3), vn(wpos * 1.3 + 17.0)) - 0.5) * 0.12;
-  float cl = vn(wpos * 0.35 + 40.0) * 0.55 + vn(wpos * 1.6) * 0.3 + (1.0 - c) * 0.3;
-  float D = smoothstep(0.35, 0.8, cl);
-  vec3 L = vec3(0.016, 0.042, 0.1);   // cell sizes (m)
-  vec3 W = vec3(1.0) - smoothstep(L * 0.3, L * 0.9, vec3(fw));
-  vec2 gs = vec2(0.0); float hsum = 0.0; float aot = 1.0; float pc = 0.0; float pw = 0.0;
-  vec2 gg; float tn; float oc; float h;
-  h = peb(wp, L.x, 0.41, mix(0.15, 0.95, D), gg, tn, oc) * W.x;
-  gs += gg * W.x; aot *= mix(1.0, oc, W.x); pc += h * mix(0.5, 1.3, tn); pw += h;
-  h = peb(wp + 11.3, L.y, 1.93, mix(0.06, 0.7, D), gg, tn, oc) * W.y;
-  gs += gg * W.y; aot *= mix(1.0, oc, W.y); pc += h * mix(0.45, 1.35, tn); pw += h;
-  h = peb(wp - 5.7, L.z, 4.12, mix(0.01, 0.4, D * D), gg, tn, oc) * W.z;
-  gs += gg * W.z; aot *= mix(1.0, oc, W.z); pc += h * mix(0.45, 1.3, tn); pw += h;
-  NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(-gs.x, 0.0, -gs.y, 0.0)).xyz);
-  // pebble albedo: dark grey basalt to dust-coated tan; sharp-ish so the clast reads as a stone
-  float on = smoothstep(0.0, 0.15, pw);
-  float k = pw > 0.0 ? pc / pw : 1.0;
-  vec3 stone = mix(vec3(0.075, 0.066, 0.06), vec3(0.3, 0.19, 0.12), clamp(k - 0.45, 0.0, 1.0));
-  base = mix(base, mix(stone, base, 0.25), on * 0.85);
-  base *= aot;
-  // once a layer is sub-pixel, keep its average darkening so gravelly patches still read
-  base *= 1.0 - 0.1 * D * ((1.0 - W.x) + (1.0 - W.y)) * 0.5;
-  // fine sand grain right at the feet
-  base *= 1.0 + (h21(floor(wpos * 400.0)) - 0.5) * 0.12 * (1.0 - smoothstep(0.0015, 0.004, fw));
-  ALBEDO = base;
-  ROUGHNESS = 1.0;
-}
-"""
+	var sh: Shader = load("res://terrain.gdshader")
 	terrain_mat = ShaderMaterial.new()
 	terrain_mat.shader = sh
 	terrain_mat.set_shader_parameter("ortho", tex)
@@ -589,8 +592,15 @@ func _setup_xr() -> void:
 	var xr := XRServer.find_interface("OpenXR")
 	if xr and xr.initialize():
 		get_viewport().use_xr = true
-		xr.render_target_size_multiplier = 1.25
-		get_viewport().msaa_3d = Viewport.MSAA_4X
+		var scale := 0.85
+		var msaa := 0
+		for a in OS.get_cmdline_user_args():
+			if a.begins_with("--xr-scale="):
+				scale = float(a.get_slice("=", 1))
+			elif a.begins_with("--msaa="):
+				msaa = int(a.get_slice("=", 1))
+		xr.render_target_size_multiplier = scale
+		get_viewport().msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X][clampi(msaa, 0, 2)]
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		in_xr = true
 	else:
@@ -600,6 +610,9 @@ func _setup_xr() -> void:
 
 func _toggle_hazard() -> void:
 	hazard_on = not hazard_on
+	if world_mode:
+		W.set_hazard(hazard_on)
+		return
 	terrain_mat.set_shader_parameter("hazard", hazard_on)
 
 
@@ -608,12 +621,19 @@ func _unhandled_input(e: InputEvent) -> void:
 		_toggle_hazard()
 	elif e is InputEventKey and e.pressed and e.keycode == KEY_ESCAPE:
 		get_tree().quit()
+	elif world_mode and e is InputEventKey and e.pressed and e.keycode == KEY_G:
+		riding = not riding
+		if riding:
+			ride_s = W.route_nearest_s(Vector2(origin.position.x, origin.position.z))
 	elif e is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
 		yaw -= e.relative.x * 0.003
 		pitch = clampf(pitch - e.relative.y * 0.003, -1.4, 1.4)
 
 
 func _process(delta: float) -> void:
+	if world_mode:
+		_process_world(delta)
+		return
 	if shot_path != "":
 		shot_frames += 1
 		if shot_frames == 40:

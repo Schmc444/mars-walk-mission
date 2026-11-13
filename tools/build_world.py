@@ -2,7 +2,7 @@
 
   WORLD/world.json                  manifest (read by the viewer; the contract for layers)
   WORLD/route.json                  Perseverance route in world coordinates
-  WORLD/terrain/t<step>/<bx>_<by>.i16   int16 LE, units of 0.05 m above datum (see world.json terrain.unit_m), (N+1)^2 samples, row 0 = north
+  WORLD/terrain/t<step>/<bx>_<by>.f32   float32 LE, metres above datum, (N+1)^2 samples, row 0 = north
   WORLD/ortho/o<cm>/<bx>_<by>.png       8-bit grayscale, 0 = no data
 
 World frame: x east, z south, y up, ground metres, origin = first route vertex, y = elevation - elevation at origin.
@@ -16,7 +16,6 @@ import numpy as np
 BLOCK = 500
 T_STEPS = (1, 5, 20)           # terrain LODs: ground metres per sample (N-S)
 O_CM = (25, 50, 100, 400)      # ortho LODs: cm per pixel (N-S)
-UNIT = 0.05                    # terrain sample unit in metres (int16 -> +-1638 m around the datum)
 
 
 def write_png_gray(path, a):
@@ -82,14 +81,12 @@ def do_block(arg):
     if nod < 1:
         ext = fill_nan(ext)
     ext = np.nan_to_num(ext, nan=datum)
-    q = np.round((ext - datum) / UNIT)
-    assert np.abs(q).max() <= 32767, "height range exceeds int16 at unit %g" % UNIT
-    cm = q.astype("<i2")
+    cm = (ext - datum).astype("<f4")
     for st in T_STEPS:
         d = "%s/terrain/t%d" % (out, st)
         os.makedirs(d, exist_ok=True)
-        cm[::st, ::st].tofile("%s/%d_%d.i16.part" % (d, bx, by))
-        os.replace("%s/%d_%d.i16.part" % (d, bx, by), "%s/%d_%d.i16" % (d, bx, by))
+        cm[::st, ::st].tofile("%s/%d_%d.f32.part" % (d, bx, by))
+        os.replace("%s/%d_%d.f32.part" % (d, bx, by), "%s/%d_%d.f32" % (d, bx, by))
     p = "%s/ortho_%d_%d.u8" % (band, bx, by)
     o = np.fromfile(p, dtype="u1").reshape(BLOCK * 4, BLOCK * 4)
     for cmpx in O_CM:
@@ -131,7 +128,7 @@ def main():
             res.append(r)
             if i % 10 == 0 or i == len(args):
                 print("%d/%d blocks (%.0fs)" % (i, len(args), time.time() - t0), flush=True)
-    lo, hi = min(r[3] for r in res) * UNIT, max(r[4] for r in res) * UNIT
+    lo, hi = min(r[3] for r in res), max(r[4] for r in res)
     print("height range vs datum: %.1f .. %.1f m" % (lo, hi))
 
     sx, sz = cosl * t["px_m"], t["px_m"]
@@ -148,7 +145,7 @@ def main():
         origin=dict(lon=first[0], lat=first[1], px=[opx, opy], mosaic_x0=t["x0"], mosaic_y0=t["y0"], lat0=lat0),
         datum_m=datum, block=BLOCK, spacing_x=sx, spacing_z=sz, tile_m=[BLOCK * sx, BLOCK * sz],
         tile_world_origin="tile (bx,by) west-north corner = ((bx*block - origin.px[0])*spacing_x, (by*block - origin.px[1])*spacing_z)",
-        terrain=dict(dtype="i16", unit_m=UNIT, nodata_filled=True, lods=[dict(dir="terrain/t%d" % s, step_m=s, samples=BLOCK // s + 1) for s in T_STEPS],
+        terrain=dict(dtype="f32", unit="m", nodata_filled=True, lods=[dict(dir="terrain/t%d" % s, step_m=s, samples=BLOCK // s + 1) for s in T_STEPS],
                      note="(N+1)^2 samples incl. shared east/south border; sample i at x=i*step_m*spacing_x/1 (x) and z=i*step_m (z)"),
         ortho=dict(format="png8", nodata=0, lods=[dict(dir="ortho/o%d" % c, cm=c, size=BLOCK * 100 // c) for c in O_CM]),
         tiles=[dict(bx=r[0], by=r[1], nodata_frac=round(r[2], 4)) for r in sorted(res, key=lambda r: (r[1], r[0]))],
