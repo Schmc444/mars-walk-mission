@@ -132,12 +132,61 @@ def _texture(ctx, rid, half_m, out_px, res, block, hirise=False):
     return name, srcs
 
 
+def _gauss(a, sigma):
+    n = a.shape[0]
+    k = np.fft.fftfreq(n)
+    g = np.exp(-2 * (np.pi * sigma) ** 2 * (k[:, None] ** 2 + k[None, :] ** 2))
+    return np.real(np.fft.ifft2(np.fft.fft2(a) * g))
+
+
+def _erode(v, r):
+    out = v.copy()
+    for _ in range(r):
+        o = out.copy()
+        o[1:] &= out[:-1]; o[:-1] &= out[1:]; o[:, 1:] &= out[:, :-1]; o[:, :-1] &= out[:, 1:]
+        out = o
+    return out
+
+
+def _offset_field(v, d):
+    """Smooth field d = DTM - global DEM over mask v, extended into the gaps (normalised Gaussian convolution, fine to coarse)."""
+    d = np.where(v, d, 0.0)
+    out = np.full(v.shape, d[v].mean())
+    for sigma in (400, 100, 25, 6):
+        w = _gauss(v.astype(float), sigma)
+        f = _gauss(d, sigma) / np.maximum(w, 1e-9)
+        c = np.clip(w / 0.4, 0, 1)
+        out = out * (1 - c) + f * c
+    return out
+
+
+def _fill_with_global(h, g):
+    """Merge a gappy DTM with the smoothed global DEM, leaving no steps at the DTM border."""
+    g = _gauss(np.nan_to_num(g, nan=float(np.nanmean(g))), 3)
+    v = _erode(~np.isnan(h), 2)
+    d = np.where(v, np.nan_to_num(h) - g, 0.0)
+    off = _offset_field(v, d)
+    dev = np.abs(d - _gauss(d, 8) / np.maximum(_gauss(v.astype(float), 8), 1e-9))
+    v &= ~(v & (dev > 40))
+    off = _offset_field(v, np.where(v, np.nan_to_num(h) - g, 0.0))
+    w = np.clip(_gauss(v.astype(float), 3) * 1.6 - 0.3, 0, 1)
+    base = g + off
+    return w * np.where(np.isnan(h), base, h) + (1 - w) * base, off
+
+
 def _ring(ctx, rid, title, source, half_m, step_m, block, inner_skip_m, view, tex=None):
     h, bad = sample_ground_grid(raster(source), ctx.site, half_m, step_m, block, keep_nan=True)
-    if bad:
+    if source == "hrsc_mola_200m":
+        h = h + ctx.scene.get("gdem_offset_m", 0.0)
+    elif bad:
         g, _ = sample_ground_grid(raster("hrsc_mola_200m"), ctx.site, half_m, step_m, 1, keep_nan=True)
-        h = np.where(np.isnan(h), g, h)
-        print("  %.0f%% of %s outside the DTM, filled from the 200 m global DEM" % (bad * 100, rid))
+        if bad < 1:
+            h, d = _fill_with_global(h, g)
+            n = h.shape[0] // 2
+            ctx.scene.setdefault("gdem_offset_m", float(d[n, n]))
+        else:
+            h = g + ctx.scene.get("gdem_offset_m", 0.0)
+        print("  %.0f%% of %s outside the DTM, filled from the 200 m global DEM (offset-matched to the DTM)" % (bad * 100, rid))
     h = (np.nan_to_num(h, nan=ctx.scene["center_elevation_m"]) - ctx.scene["center_elevation_m"]).astype("f4")
     h.tofile(ctx.path(rid + ".f32"))
     e = dict(id=rid, title=title, kind="elevation", role="ring", file=rid + ".f32", dtype="f32", samples=h.shape[0],
