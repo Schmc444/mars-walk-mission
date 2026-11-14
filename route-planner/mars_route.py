@@ -48,7 +48,7 @@ def load_grid(folder, layer_id="terrain"):
     rf = os.path.join(folder, "route_local.json")
     if os.path.exists(rf):
         route = [s["points"] for s in json.load(open(rf))]
-    return dict(h=h, n=n, step=step, half=half, img=img, route=route, scene=scene)
+    return dict(h=h, n=n, step=step, half=half, x0=-half, z0=-half, nodata=None, img=img, route=route, scene=scene)   # x0/z0: esquina noroeste (m); nodata: máscara opcional
 
 
 def derive(g, sun_az=135.0, sun_el=35.0, terrain_source=None):
@@ -72,10 +72,12 @@ def derive(g, sun_az=135.0, sun_el=35.0, terrain_source=None):
     # cells near the rover's driven route
     near = np.zeros_like(h, bool)
     if g["route"]:
-        n, half = g["n"], g["half"]
+        nr, nc = h.shape
         for pts in g["route"]:
             for x, z in pts:
-                c, r = int(round((x + half) / s)), int(round((z + half) / s))
+                c, r = int(round((x - g["x0"]) / s)), int(round((z - g["z0"]) / s))
+                if not (-3 < r < nr + 3 and -3 < c < nc + 3):
+                    continue
                 rr = max(1, int(round(2.0 / s)))
                 near[max(0, r - rr):r + rr + 1, max(0, c - rr):c + rr + 1] = True
     g["near_route"] = near
@@ -108,6 +110,8 @@ def build_cost(g, cond, risk=None):
     pen = 1.0 + risk * (pen_slope + pen_rough + pen_terr) + c["shadow"] * g["shadow"]
     pen = np.where(g["near_route"], pen * c["track"], pen)   # preference only: does not change real speed / ETA
     blocked = g["slope"] >= cfg.HARD_SLOPE
+    if g.get("nodata") is not None:
+        blocked = blocked | g["nodata"]            # celdas sin datos (fuera de los tiles o rellenadas): intransitables
     cg = dict(g)
     cg.update(speed_cell=speed_cell, pen=pen, blocked=blocked, cond=cond, risk=risk)
     # heuristic needs the cheapest possible cost per metre: fastest speed and smallest penalty (track discount)
@@ -133,23 +137,23 @@ NB = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
 
 
 def to_rc(g, x, z):
-    s, half = g["step"], g["half"]
-    return int(round((z + half) / s)), int(round((x + half) / s))
+    s = g["step"]
+    return int(round((z - g["z0"]) / s)), int(round((x - g["x0"]) / s))
 
 
 def to_xz(g, r, c):
-    return c * g["step"] - g["half"], r * g["step"] - g["half"]
+    return c * g["step"] + g["x0"], r * g["step"] + g["z0"]
 
 
 def astar(g, start, goal, corridor=None):
-    """A* de 8 vecinos. `corridor` (bool n x n, opcional): solo se expanden celdas dentro del corredor (planificación jerárquica)."""
-    n = g["n"]
+    """A* de 8 vecinos. `corridor` (bool nr x nc, opcional): solo se expanden celdas dentro del corredor (planificación jerárquica)."""
+    nr, nc = g["h"].shape
     sr, sc = start
     gr, gc = goal
     s, vmax = g["step"], g["vmax"]
     H = lambda r, c: s * math.hypot(r - gr, c - gc) / vmax  # admissible: no edge is faster than vmax
-    best = np.full((n, n), np.inf)
-    prev = -np.ones((n, n), "i8")
+    best = np.full((nr, nc), np.inf)
+    prev = -np.ones((nr, nc), "i8")
     best[sr, sc] = 0.0
     pq = [(H(sr, sc), 0.0, sr, sc)]
     expanded = 0
@@ -162,17 +166,17 @@ def astar(g, start, goal, corridor=None):
             break
         for dr, dc in NB:
             rr, cc = r + dr, c + dc
-            if 0 <= rr < n and 0 <= cc < n and (corridor is None or corridor[rr, cc]):
+            if 0 <= rr < nr and 0 <= cc < nc and (corridor is None or corridor[rr, cc]):
                 nd = d + edge_cost(g, r, c, rr, cc)
                 if nd < best[rr, cc]:
                     best[rr, cc] = nd
-                    prev[rr, cc] = r * n + c
+                    prev[rr, cc] = r * nc + c
                     heapq.heappush(pq, (nd + H(rr, cc), nd, rr, cc))
     if not math.isfinite(best[gr, gc]):
         return None, expanded
-    path, k = [], gr * n + gc
+    path, k = [], gr * nc + gc
     while k >= 0:
-        path.append(divmod(int(k), n))
+        path.append(divmod(int(k), nc))
         k = prev[path[-1]]
     return path[::-1], expanded
 
@@ -180,28 +184,31 @@ def astar(g, start, goal, corridor=None):
 def coarse_corridor(g, start, goal, k=4, width=3):
     """Planificación jerárquica: A* grueso (bloques de k x k celdas) y corredor fino alrededor de esa ruta.
 
-    Devuelve (corredor bool n x n, nodos_expandidos) o (None, 0) si el nivel grueso no encuentra ruta (se usa la búsqueda completa).
+    Devuelve (corredor bool nr x nc, nodos_expandidos) o (None, 0) si el nivel grueso no encuentra ruta (se usa la búsqueda completa).
     La ruta fina queda dentro del corredor (±width celdas gruesas), así que es casi óptima pero explora mucho menos.
     """
-    n, m = g["n"], g["n"] // k
-    pool = lambda a: a[:m * k, :m * k].reshape(m, k, m, k).mean((1, 3))
+    nr, nc = g["h"].shape
+    mr, mc = nr // k, nc // k
+    if mr < 2 or mc < 2:
+        return None, 0
+    pool = lambda a: a[:mr * k, :mc * k].reshape(mr, k, mc, k).mean((1, 3))
     cg = dict(g)
-    cg.update(h=pool(g["h"]), n=m, step=g["step"] * k, half=g["half"] - (k - 1) / 2 * g["step"],
+    cg.update(h=pool(g["h"]), step=g["step"] * k, x0=g["x0"] + (k - 1) / 2 * g["step"], z0=g["z0"] + (k - 1) / 2 * g["step"],
               speed_cell=pool(g["speed_cell"]), pen=pool(g["pen"]), blocked=pool(g["blocked"].astype(float)) > 0.5)
     sx, sz = to_xz(g, *start)
     gx, gz = to_xz(g, *goal)
     s, t = to_rc(cg, sx, sz), to_rc(cg, gx, gz)
-    s = (min(max(s[0], 0), m - 1), min(max(s[1], 0), m - 1))
-    t = (min(max(t[0], 0), m - 1), min(max(t[1], 0), m - 1))
+    s = (min(max(s[0], 0), mr - 1), min(max(s[1], 0), mc - 1))
+    t = (min(max(t[0], 0), mr - 1), min(max(t[1], 0), mc - 1))
     cg["blocked"][s], cg["blocked"][t] = False, False
     path, exp = astar(cg, s, t)
     if path is None:
         return None, 0
-    mask = np.zeros((m, m), bool)
+    mask = np.zeros((mr, mc), bool)
     for r, c in path:
         mask[max(0, r - width):r + width + 1, max(0, c - width):c + width + 1] = True
-    full = np.zeros((n, n), bool)
-    full[:m * k, :m * k] = np.kron(mask, np.ones((k, k), bool))
+    full = np.zeros((nr, nc), bool)
+    full[:mr * k, :mc * k] = np.kron(mask, np.ones((k, k), bool))
     full[start], full[goal] = True, True
     return full, exp
 
@@ -248,9 +255,10 @@ def smooth(g, path, tol=1.02):
 
 # ---------------------------------------------------------------- 5. export
 def bilinear(g, a, x, z):
-    s, half, n = g["step"], g["half"], g["n"]
-    fx = min(max((x + half) / s, 0), n - 1.001)
-    fz = min(max((z + half) / s, 0), n - 1.001)
+    s = g["step"]
+    nr, nc = a.shape
+    fx = min(max((x - g["x0"]) / s, 0), nc - 1.001)
+    fz = min(max((z - g["z0"]) / s, 0), nr - 1.001)
     ix, iz = int(fx), int(fz)
     tx, tz = fx - ix, fz - iz
     return ((a[iz, ix] * (1 - tx) + a[iz, ix + 1] * tx) * (1 - tz) + (a[iz + 1, ix] * (1 - tx) + a[iz + 1, ix + 1] * tx) * tz)
@@ -320,8 +328,8 @@ def export(g, nodes, spacing=1.0):
 
 # ---------------------------------------------------------------- preview image
 def preview(g, results, out_png, scale=None):
-    n = g["n"]
-    scale = scale or max(1, 720 // n)
+    nr, nc = g["h"].shape
+    scale = scale or max(1, 720 // max(nr, nc))
     base = g["img"] if g["img"] is not None else (g["h"] - g["h"].min()) / max(np.ptp(g["h"]), 1e-6)
     rgb = np.stack([base] * 3, -1) * 0.75
     tint = {tc.ROCA_FIRME: (0.15, 0.15, 0.15), tc.REGOLITO: (0, 0, 0), tc.ARENA_DUNA: (0.25, 0.18, 0.0), tc.BLOQUES: (0.25, 0.0, 0.25)}
@@ -329,7 +337,7 @@ def preview(g, results, out_png, scale=None):
         rgb[g["cls"] == k] += t
     rgb[g["slope"] >= cfg.SOFT_SLOPE] = rgb[g["slope"] >= cfg.SOFT_SLOPE] * 0.5 + np.array([0.5, 0.25, 0])
     rgb[g["blocked"]] = (0.8, 0.0, 0.0)
-    im = Image.fromarray((np.clip(rgb, 0, 1) * 255).astype("u1")).resize((n * scale, n * scale), Image.NEAREST)
+    im = Image.fromarray((np.clip(rgb, 0, 1) * 255).astype("u1")).resize((nc * scale, nr * scale), Image.NEAREST)
     _draw_routes(g, im, results, scale)
     im.save(out_png)
 
@@ -338,7 +346,7 @@ def _draw_routes(g, im, results, scale):
     from PIL import ImageDraw
     d = ImageDraw.Draw(im)
     cols = {"normal": (0, 255, 120), "tormenta_polvo": (255, 210, 0), "frio_sombra": (90, 170, 255)}
-    px = lambda x, z: ((x + g["half"]) / g["step"] * scale + scale / 2, (z + g["half"]) / g["step"] * scale + scale / 2)
+    px = lambda x, z: ((x - g["x0"]) / g["step"] * scale + scale / 2, (z - g["z0"]) / g["step"] * scale + scale / 2)
     for name, res in results.items():
         pts = [px(p[0], p[2]) for p in res["points"]]
         d.line(pts, fill=cols.get(name, (255, 255, 255)), width=3)
@@ -352,8 +360,7 @@ def _draw_routes(g, im, results, scale):
 def preview_classes(g, results, out_png, scale=None):
     """PNG solo con la matriz de clases de terreno (paleta de terrain_classes.COLORS) + leyenda + ruta, para revisar el clasificador."""
     from PIL import ImageDraw
-    n = g["n"]
-    scale = scale or max(1, 720 // n)
+    scale = scale or max(1, 720 // max(g["h"].shape))
     im = tc.class_image(g["cls"], scale).convert("RGB")
     _draw_routes(g, im, results, scale)
     leg = Image.new("RGB", (im.width, 22), (20, 20, 24))
@@ -373,7 +380,7 @@ def export_terrain(g, prefix):
     """Escribe <prefix>.u8 (n x n bytes, fila 0 = norte, un byte por clase) y <prefix>.json (metadatos) para el HUD de Godot."""
     info = g.get("terrain_info", {})
     g["cls"].astype("u1").tofile(prefix + ".u8")
-    json.dump(dict(n=g["n"], step_m=g["step"], half_m=g["half"], source=info.get("source"), is_proxy=info.get("is_proxy"),
+    json.dump(dict(n=g["n"], nr=g["h"].shape[0], nc=g["h"].shape[1], x0=g["x0"], z0=g["z0"], step_m=g["step"], half_m=g["half"], source=info.get("source"), is_proxy=info.get("is_proxy"),
                    warning=info.get("warning"), names={str(k): v for k, v in tc.NAMES.items()},
                    short={str(k): v for k, v in tc.SHORT.items()}), open(prefix + ".json", "w"), ensure_ascii=False)
     return prefix + ".u8"
@@ -482,7 +489,7 @@ def plan_route(layers, start, goal, condition="normal", risk_weight=None, hierar
             warns += w
             pts.append(to_rc(g, x, z))
         s, t = pts
-        use_h = hierarchical == "on" or (hierarchical == "auto" and g["n"] * g["n"] > HIER_MIN_CELLS)
+        use_h = hierarchical == "on" or (hierarchical == "auto" and g["h"].size > HIER_MIN_CELLS)
         corridor, hier_exp = None, 0
         if use_h:
             t0 = time.perf_counter()

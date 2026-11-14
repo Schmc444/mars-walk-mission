@@ -60,13 +60,13 @@ def parse_latlon(text):
 
 def local_to_cell(g, x, z):
     """Metros locales -> (fila, columna) de la capa `g` (puede quedar fuera: se valida aparte)."""
-    s, half = g["step"], g["half"]
-    return int(round((z + half) / s)), int(round((x + half) / s))
+    s = g["step"]
+    return int(round((z - g["z0"]) / s)), int(round((x - g["x0"]) / s))
 
 
 def inside(g, x, z):
     r, c = local_to_cell(g, x, z)
-    return 0 <= r < g["n"] and 0 <= c < g["n"]
+    return 0 <= r < g["h"].shape[0] and 0 <= c < g["h"].shape[1]
 
 
 def validate_point(g, x, z, snap_m=5.0, what="punto"):
@@ -76,19 +76,20 @@ def validate_point(g, x, z, snap_m=5.0, what="punto"):
     (None si no hubo cambio). Si cae fuera de la capa o no hay celda transitable cerca lanza GeoError.
     """
     if not inside(g, x, z):
-        raise GeoError("%s fuera de la capa (±%.0f m del origen): x=%.0f, z=%.0f" % (what, g["half"], x, z), "fuera_de_capa")
+        raise GeoError("%s fuera de la capa (x %.0f..%.0f m, z %.0f..%.0f): x=%.0f, z=%.0f" % (
+            what, g["x0"], g["x0"] + (g["h"].shape[1] - 1) * g["step"], g["z0"], g["z0"] + (g["h"].shape[0] - 1) * g["step"], x, z), "fuera_de_capa")
     r, c = local_to_cell(g, x, z)
     blocked = g["blocked"]
     if not blocked[r, c]:
         return x, z, None
     k = int(math.ceil(snap_m / g["step"]))
     best = None
-    for rr in range(max(0, r - k), min(g["n"], r + k + 1)):
-        for cc in range(max(0, c - k), min(g["n"], c + k + 1)):
+    for rr in range(max(0, r - k), min(g["h"].shape[0], r + k + 1)):
+        for cc in range(max(0, c - k), min(g["h"].shape[1], c + k + 1)):
             d = math.hypot(rr - r, cc - c) * g["step"]
             if not blocked[rr, cc] and d <= snap_m and (best is None or d < best[0]):
                 best = (d, rr, cc)
     if best is None:
-        raise GeoError("%s intransitable (pendiente >= limite) y sin celda transitable a menos de %.0f m" % (what, snap_m), "intransitable")
-    nx, nz = g["step"] * best[2] - g["half"], g["step"] * best[1] - g["half"]
+        raise GeoError("%s intransitable (pendiente >= limite o sin datos) y sin celda transitable a menos de %.0f m" % (what, snap_m), "intransitable")
+    nx, nz = g["step"] * best[2] + g["x0"], g["step"] * best[1] + g["z0"]
     return nx, nz, "%s sobre celda intransitable; se uso la transitable mas cercana (%.1f m): x=%.1f, z=%.1f" % (what, best[0], nx, nz)
