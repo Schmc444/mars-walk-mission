@@ -12,7 +12,8 @@ const MAX_V := 50.0 / 3.6        # 50 km/h en m/s
 const MAX_ANG := deg_to_rad(60.0)
 const SEAT_Y := 1.0              # altura de la cubierta (el modelo mide 1.85 m con el mastil)
 const DESKTOP_EYE := 0.9         # ojos sobre la cubierta en escritorio (sentado)
-const LEVER_POS := Vector3(0.4, SEAT_Y + 0.3, -0.55)   # en el marco del rover (x der., y arriba, -z adelante)
+var lever_pos := Vector3(0.4, SEAT_Y + 0.3, -0.55)   # en el marco del rover (x der., y arriba, -z adelante)
+const ROVER_LOD := 3          # nivel de detalle del modelo (mayor = menos triangulos)
 const LEVER_LEN := 0.45
 
 var lever := 0.0                 # -1..1, fraccion de la velocidad maxima
@@ -113,6 +114,7 @@ func _load_rover() -> Node3D:
 	holder.name = "Perseverance"
 	holder.add_child(scene)
 	add_child(holder)
+	_simplify(holder)
 	var acc: Array = [null]
 	_aabb(holder, holder, acc)
 	var bb: AABB = acc[0]
@@ -175,30 +177,17 @@ func _mat(c: Color) -> StandardMaterial3D:
 
 
 func _update_lever() -> void:
+	lever_pos = Vector3(0.3, SEAT_Y + 0.6, -0.4) if core.in_xr else Vector3(0.4, SEAT_Y + 0.3, -0.55)
 	pivot.visible = core.riding
 	if not core.riding:
 		return
-	pivot.global_transform = rover.global_transform * Transform3D(Basis(Vector3.RIGHT, -lever * MAX_ANG), LEVER_POS)
+	pivot.global_transform = rover.global_transform * Transform3D(Basis(Vector3.RIGHT, -lever * MAX_ANG), lever_pos)
 	speed_label.text = "%+.0f km/h" % (lever * 50.0)
-
-
-func _fix_poses(delta: float) -> void:
-	pose_clock += delta
-	if pose_clock < 1.0:
-		return
-	pose_clock = 0.0
-	for c: XRController3D in [core.left, core.right]:
-		if not c.get_has_tracking_data():
-			c.pose = POSES[pose_try % POSES.size()]
-	if not (core.left.get_has_tracking_data() and core.right.get_has_tracking_data()):
-		pose_try += 1
-	print("ruta: pose=", core.right.pose, " tracking L/R=", core.left.get_has_tracking_data(), "/", core.right.get_has_tracking_data(), " hand=", core.right.global_position, " knob=", knob.global_position if knob else Vector3.ZERO)
 
 
 func _grab_input() -> void:
 	if not core.in_xr or core.right == null:
 		return
-	_fix_poses(get_process_delta_time())
 	var g: float = core.right.get_float("grip")
 	var hand: Vector3 = core.right.global_position
 	if not grabbing:
@@ -207,5 +196,27 @@ func _grab_input() -> void:
 	elif g < 0.4:
 		grabbing = false
 	if grabbing:
-		var d: Vector3 = rover.global_transform.affine_inverse() * hand - LEVER_POS
+		var d: Vector3 = rover.global_transform.affine_inverse() * hand - lever_pos
 		lever = clampf(atan2(-d.z, d.y) / MAX_ANG, -1.0, 1.0)
+
+
+func _simplify(n: Node) -> void:
+	if n is MeshInstance3D and (n as MeshInstance3D).mesh is ArrayMesh:
+		var mi := n as MeshInstance3D
+		var src: ArrayMesh = mi.mesh
+		var im := ImporterMesh.new()
+		for i in src.get_surface_count():
+			im.add_surface(Mesh.PRIMITIVE_TRIANGLES, src.surface_get_arrays(i), [], {}, src.surface_get_material(i))
+		im.generate_lods(25.0, 60.0, [])
+		var out := ArrayMesh.new()
+		for i in im.get_surface_count():
+			var arr := im.get_surface_arrays(i)
+			var nl := im.get_surface_lod_count(i)
+			if nl > 0:
+				arr[Mesh.ARRAY_INDEX] = im.get_surface_lod_indices(i, mini(ROVER_LOD, nl) - 1)
+			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			out.surface_set_material(i, im.get_surface_material(i))
+		mi.mesh = out
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for ch in n.get_children():
+		_simplify(ch)
