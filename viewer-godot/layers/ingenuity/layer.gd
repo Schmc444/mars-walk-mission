@@ -1,0 +1,108 @@
+extends Node3D
+# Capa ingenuity: pone el helicoptero (marcador de posicion) y un pin en las coordenadas de ingenuity.json.
+# Para mover Ingenuity solo se edita ingenuity.json. Ver LEEME.md.
+
+const ALTO_PIN := 30.0
+const COLOR := Color(0.2, 0.9, 1.0)
+
+var world: WorldStreamer
+var core: Node
+var pin: Node3D
+var heli: Node3D
+var px := 0.0
+var pz := 0.0
+var reajuste := 0.0
+
+
+func setup(w: WorldStreamer, c: Node) -> void:
+	world = w
+	core = c
+	var d = JSON.parse_string(FileAccess.get_file_as_string("res://layers/ingenuity/ingenuity.json"))
+	if d == null:
+		push_error("ingenuity: ingenuity.json no es JSON valido")
+		return
+	var xz: Vector2
+	if d.has("x") and d.has("z"):
+		xz = Vector2(d["x"], d["z"])
+	else:
+		xz = world.lonlat_to_world(d["lon"], d["lat"])
+	px = xz.x
+	pz = xz.y
+	pin = _make_pin(d.get("nombre", "Ingenuity"), COLOR)
+	add_child(pin)
+	heli = _make_heli()
+	add_child(heli)
+	print("ingenuity: x=", snappedf(px, 0.1), " z=", snappedf(pz, 0.1))
+
+
+# Helicoptero provisional (cuerpo + 2 palas). Reemplazar por un .glb: heli = load("res://layers/ingenuity/ingenuity.glb").instantiate()
+func _make_heli() -> Node3D:
+	var n := Node3D.new()
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.85, 0.85, 0.85)
+	var cuerpo := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.2, 0.3, 0.2)
+	cuerpo.mesh = bm
+	cuerpo.material_override = mat
+	cuerpo.position.y = 0.5
+	n.add_child(cuerpo)
+	var pala := MeshInstance3D.new()
+	var pm := BoxMesh.new()
+	pm.size = Vector3(1.2, 0.02, 0.08)
+	pala.mesh = pm
+	pala.material_override = mat
+	pala.position.y = 0.8
+	n.add_child(pala)
+	return n
+
+
+# El terreno carga por distancia: se vuelve a pegar al suelo cada 0.5 s.
+func _process(d: float) -> void:
+	if pin == null:
+		return
+	reajuste -= d
+	if reajuste > 0.0:
+		return
+	reajuste = 0.5
+	var y := world.height_at(px, pz)
+	pin.global_position = Vector3(px, y, pz)
+	heli.global_position = Vector3(px, y, pz)
+
+
+# --- pin: poste alto + esfera + nombre, pegado al suelo ---
+func _make_pin(nombre: String, color: Color) -> Node3D:
+	var n := Node3D.new()
+	n.name = nombre
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = color
+	var poste := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.15
+	cm.bottom_radius = 0.15
+	cm.height = ALTO_PIN
+	poste.mesh = cm
+	poste.material_override = mat
+	poste.position.y = ALTO_PIN * 0.5
+	n.add_child(poste)
+	var bola := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 1.0
+	sm.height = 2.0
+	bola.mesh = sm
+	bola.material_override = mat
+	bola.position.y = ALTO_PIN + 1.0
+	n.add_child(bola)
+	var t := Label3D.new()
+	t.text = nombre
+	t.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	t.no_depth_test = true
+	t.fixed_size = true
+	t.pixel_size = 0.0008
+	t.font_size = 48
+	t.modulate = Color(1, 1, 1)
+	t.outline_size = 12
+	t.position.y = ALTO_PIN + 3.0
+	n.add_child(t)
+	return n
