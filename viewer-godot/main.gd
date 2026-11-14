@@ -105,6 +105,7 @@ func _ready() -> void:
 
 var shot_path := ""
 var shot_frames := 0
+var shot_ready_frames := 0
 
 
 func _ready_world(dir: String) -> void:
@@ -191,7 +192,9 @@ func _world_test() -> void:
 func _process_world(delta: float) -> void:
 	if shot_path != "":
 		shot_frames += 1
-		if shot_frames > 60 and W.is_ready() and shot_frames > 120:
+		if W.is_ready():
+			shot_ready_frames += 1
+		if shot_frames > 120 and shot_ready_frames > 120:
 			get_viewport().get_texture().get_image().save_png(shot_path)
 			get_tree().quit()
 	var p := origin.position
