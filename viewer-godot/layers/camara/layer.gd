@@ -163,9 +163,11 @@ func _show(xf: Transform3D) -> void:
 	var h := _hit(xf)
 	var d := xf.origin.distance_to(h)
 	var mid := xf.origin.lerp(h, 0.5)
-	ray.global_transform = Transform3D(Basis.looking_at(h - xf.origin, Vector3.UP).scaled(Vector3(1, 1, d)), mid)
+	var dir := (h - xf.origin).normalized()
+	var fb := Basis.looking_at(dir, Vector3.UP if absf(dir.y) < 0.99 else Vector3.RIGHT)
+	ray.global_transform = Transform3D(fb * Basis.from_scale(Vector3(1, 1, d)), mid)
 	var s := maxf(0.06 * d * 0.1, 0.03)
-	reticle.global_transform = Transform3D(Basis(Vector3.RIGHT, PI / 2).scaled(Vector3(s, s, s)), h)
+	reticle.global_transform = Transform3D(fb * Basis(Vector3.RIGHT, PI / 2) * Basis.from_scale(Vector3(s, s, s)), h)
 
 
 func _process(_d: float) -> void:
