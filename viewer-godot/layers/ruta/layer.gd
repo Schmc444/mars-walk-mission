@@ -37,14 +37,14 @@ func setup(w: WorldStreamer, c: Node) -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--lever="):
 			lever = clampf(float(a.get_slice("=", 1)), -1.0, 1.0)
-	for c: XRController3D in [core.left, core.right]:
+	for hc: XRController3D in [core.left, core.right]:
 		var m := MeshInstance3D.new()
 		var sm := SphereMesh.new()
 		sm.radius = 0.03
 		sm.height = 0.06
 		m.mesh = sm
 		m.material_override = _mat(Color(0.2, 0.7, 1.0))
-		c.add_child(m)
+		hc.add_child(m)
 		hand_marks.append(m)
 
 
