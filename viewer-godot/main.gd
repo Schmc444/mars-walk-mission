@@ -118,6 +118,11 @@ func _ready_world(dir: String) -> void:
 	_setup_xr()
 	_hud()
 	_load_layers(args)
+	if not ("--norings" in args):
+		var fr := FarRings.new()
+		fr.albedo = FAR_ALBEDO
+		add_child(fr)
+		fr.setup(dir, W)
 	var start := Vector2.ZERO
 	for a in args:
 		if a.begins_with("--sol="):
