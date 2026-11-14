@@ -2,12 +2,13 @@
 
 El **núcleo** (mapa, carga del mundo, movimiento del rover, video) lo hacen Santiago y Claude. Cada compañero construye **una capa** encima. Si todos respetan las reglas de abajo, los cinco trabajos se juntan al final sin conflictos.
 
-| Capa | Carpeta | Qué hace |
-|---|---|---|
-| Puntos de interés | `viewer-godot/layers/puntos_interes/` | Paneles de información donde Perseverance tomó muestras |
-| Ingenuity | `viewer-godot/layers/ingenuity/` | Misión de rescate: ruta segura a pie considerando peligros |
-| Minimapa y brújula | `viewer-godot/layers/minimapa/` | Minimapa en la mano y brújula basada en el sol |
-| Atmósfera | `viewer-godot/layers/atmosfera/` | Superposición de CO2, radiación y oxígeno |
+| Capa | Responsable | Rama | Carpeta | Qué hace |
+|---|---|---|---|---|
+| Puntos de interés | Paula | `capa/puntos_interes` | `viewer-godot/layers/puntos_interes/` | Paneles de información donde Perseverance tomó muestras |
+| Ingenuity | Paquito | `capa/ingenuity` | `viewer-godot/layers/ingenuity/` | Misión de rescate: ruta segura a pie considerando peligros |
+| Minimapa y brújula | Nani | `capa/minimapa` | `viewer-godot/layers/minimapa/` | Minimapa en la mano y brújula basada en el sol |
+| Atmósfera | Kevin (kbogantess) | `capa/atmosfera` | `viewer-godot/layers/atmosfera/` | Superposición de CO2, radiación y oxígeno |
+| Ruta (Perseverance en rieles) | Santiago | `capa/ruta` | `viewer-godot/layers/ruta/` | El rover siguiendo la ruta real |
 
 (Si tu capa tiene otro nombre, usa otra carpeta; el nombre de la carpeta es el nombre de la capa.)
 
