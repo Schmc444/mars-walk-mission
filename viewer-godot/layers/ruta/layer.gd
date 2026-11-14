@@ -20,6 +20,10 @@ var pivot: Node3D
 var knob: Node3D
 var speed_label: Label3D
 var grabbing := false
+var hand_marks: Array[MeshInstance3D] = []
+var pose_try := 0
+var pose_clock := 0.0
+const POSES: Array[StringName] = [&"grip", &"aim", &"default", &"grip_pose", &"aim_pose", &"default_pose"]
 
 
 func setup(w: WorldStreamer, c: Node) -> void:
@@ -33,6 +37,15 @@ func setup(w: WorldStreamer, c: Node) -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--lever="):
 			lever = clampf(float(a.get_slice("=", 1)), -1.0, 1.0)
+	for c: XRController3D in [core.left, core.right]:
+		var m := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.03
+		sm.height = 0.06
+		m.mesh = sm
+		m.material_override = _mat(Color(0.2, 0.7, 1.0))
+		c.add_child(m)
+		hand_marks.append(m)
 
 
 func _unhandled_input(e: InputEvent) -> void:
@@ -169,13 +182,27 @@ func _update_lever() -> void:
 	speed_label.text = "%+.0f km/h" % (lever * 50.0)
 
 
+func _fix_poses(delta: float) -> void:
+	pose_clock += delta
+	if pose_clock < 1.0:
+		return
+	pose_clock = 0.0
+	for c: XRController3D in [core.left, core.right]:
+		if not c.get_has_tracking_data():
+			c.pose = POSES[pose_try % POSES.size()]
+	if not (core.left.get_has_tracking_data() and core.right.get_has_tracking_data()):
+		pose_try += 1
+	print("ruta: pose=", core.right.pose, " tracking L/R=", core.left.get_has_tracking_data(), "/", core.right.get_has_tracking_data(), " hand=", core.right.global_position, " knob=", knob.global_position if knob else Vector3.ZERO)
+
+
 func _grab_input() -> void:
 	if not core.in_xr or core.right == null:
 		return
+	_fix_poses(get_process_delta_time())
 	var g: float = core.right.get_float("grip")
 	var hand: Vector3 = core.right.global_position
 	if not grabbing:
-		if g > 0.7 and hand.distance_to(knob.global_position) < 0.2:
+		if g > 0.7 and hand.distance_to(knob.global_position) < 0.25:
 			grabbing = true
 	elif g < 0.4:
 		grabbing = false
