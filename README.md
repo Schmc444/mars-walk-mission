@@ -19,6 +19,11 @@ Controls: **W/A/S/D** move, **Shift** run, **right mouse** look, **H** slope haz
 
 Useful flags (after `--`): `--patch=<folder>`, `--cam=az,el,vfov`, `--norover`, `--shot=out.png` (render one frame and exit).
 
+## Equipo / ramas
+
+Trabajando en equipo: lee [`docs/EQUIPO.md`](docs/EQUIPO.md) (una rama `capa/<nombre>` por capa, cada quien en `viewer-godot/layers/<su_capa>/`, merge por Pull Request hacia `foundation`).
+Modo mundo completo (ruta de Perseverance, sols 0-1599): `godot --path viewer-godot --xr-mode off -- --world=<carpeta> --sol=1114`.
+
 ## What is in here
 
 | Folder | Contents |

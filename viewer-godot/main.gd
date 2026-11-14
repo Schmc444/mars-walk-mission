@@ -117,6 +117,7 @@ func _ready_world(dir: String) -> void:
 	_setup_player()
 	_setup_xr()
 	_hud()
+	_load_layers(args)
 	var start := Vector2.ZERO
 	for a in args:
 		if a.begins_with("--sol="):
@@ -137,6 +138,31 @@ func _ready_world(dir: String) -> void:
 	W.focus = origin.position
 	if "--test" in args:
 		_world_test()
+
+
+func _load_layers(args: PackedStringArray) -> void:
+	# Cada compañero pone su capa en res://layers/<nombre>/layer.gd (ver docs/EQUIPO.md). --layers=a,b limita cuales se cargan.
+	var only: PackedStringArray = []
+	for a in args:
+		if a.begins_with("--layers="):
+			only = a.substr(9).split(",")
+	for d in DirAccess.get_directories_at("res://layers"):
+		if d.begins_with("_") or (not only.is_empty() and not d in only):
+			continue
+		var path := "res://layers/%s/layer.gd" % d
+		if not ResourceLoader.exists(path):
+			continue
+		var sc: Script = load(path)
+		if sc == null:
+			push_warning("capa %s: no se pudo cargar" % d)
+			continue
+		var node := Node3D.new()
+		node.name = "capa_" + d
+		node.set_script(sc)
+		add_child(node)
+		if node.has_method("setup"):
+			node.setup(W, self)
+		print("capa cargada: ", d)
 
 
 func _world_test() -> void:
