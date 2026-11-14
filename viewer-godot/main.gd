@@ -212,7 +212,7 @@ func _process_world(delta: float) -> void:
 		if riding:
 			world_speed = mv.y * 12.0
 		else:
-			p += (fwd * mv.y + rgt * mv.x) * delta * (15.0 if left.is_button_pressed("primary_click") else 2.2)
+			p += (fwd * mv.y + rgt * mv.x) * delta * (15.0 if left.get_float("trigger") > 0.5 else 2.2)
 		var tx := right.get_vector2("primary").x
 		if absf(tx) > 0.7 and snap_ready:
 			origin.rotate_y(-signf(tx) * PI / 6.0)
@@ -726,7 +726,7 @@ func _process(delta: float) -> void:
 		fwd = fwd.normalized()
 		var rgt := fwd.cross(Vector3.UP)
 		var mv := left.get_vector2("primary")
-		origin.global_position += (fwd * mv.y + rgt * mv.x) * delta * (15.0 if left.is_button_pressed("primary_click") else 2.2)
+		origin.global_position += (fwd * mv.y + rgt * mv.x) * delta * (15.0 if left.get_float("trigger") > 0.5 else 2.2)
 		var tx := right.get_vector2("primary").x
 		if absf(tx) > 0.7 and snap_ready:
 			origin.rotate_y(-signf(tx) * PI / 6.0)
