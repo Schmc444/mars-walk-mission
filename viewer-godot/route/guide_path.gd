@@ -14,6 +14,9 @@ class_name GuidePath
 @export var spacing := 1.5             # m between chevrons
 @export var lookahead := 4.0           # m ahead along the route the floating arrow points to
 @export var off_route_warn := 3.0      # m: warn when the player is farther than this from the route
+@export var lift := 0.05               # m que flotan los chevrones sobre el suelo (en world, cuyos LOD difieren, conviene más)
+
+var height_fn: Callable = Callable()    # opcional (x, z) -> y: re-pega la ruta al terreno del visor (WorldStreamer.height_at)
 
 const COL_OK := Color(0.2, 1.0, 0.55)
 const COL_SLOPE := Color(1.0, 0.75, 0.1)
@@ -86,6 +89,8 @@ func set_route(path: String, dest_name := "") -> bool:
 	for i in data["points"].size():
 		var p: Array = data["points"][i]
 		var v := Vector3(p[0], p[1], p[2])
+		if height_fn.is_valid():
+			v.y = height_fn.call(v.x, v.z)
 		if i > 0:
 			d += v.distance_to(pts[i - 1])
 		pts.append(v)
@@ -152,7 +157,7 @@ func _build_chevrons() -> void:
 		if dir.length() < 0.01:
 			dir = Vector3.FORWARD
 		var b := Basis.looking_at(dir.normalized(), Vector3.UP)  # -Z points along the route: the V tip points forward
-		mm.set_instance_transform(k, Transform3D(b, pts[i] + Vector3.UP * 0.05))
+		mm.set_instance_transform(k, Transform3D(b, pts[i] + Vector3.UP * lift))
 		mm.set_instance_color(k, _risk_color(i))
 	var mi := MultiMeshInstance3D.new()
 	_chevrons = mi

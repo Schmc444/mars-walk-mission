@@ -28,7 +28,9 @@ const EMIT_EVERY := 0.5                   # s entre player_position_changed
 var typing := false                       # true mientras hay un diálogo abierto (main.gd deja de mover al jugador)
 var core: Node                            # main.gd: origin (XROrigin3D), cam, hud
 var guide: Node                           # GuidePath
-var scene_dir := ""                       # ruta absoluta de la escena (patch_793)
+var scene_dir := ""                       # ruta de la escena (patch_793) o de la carpeta del world
+var world_mode := false                   # true: escena "world" (WorldStreamer) en vez de un parche
+var W: Node                               # WorldStreamer (solo world_mode)
 var lon0 := 0.0
 var lat0 := 0.0
 var has_geo := false
@@ -62,6 +64,7 @@ var _out_dir := ""
 
 
 func setup(core_node: Node, guide_node: Node, scene_res_dir: String, scene: Dictionary) -> void:
+	## Modo parche: georreferencia de scene.json -> origin.
 	core = core_node
 	guide = guide_node
 	guide.hud_terrain = false
@@ -71,6 +74,24 @@ func setup(core_node: Node, guide_node: Node, scene_res_dir: String, scene: Dict
 		lon0 = float(o["lon"])
 		lat0 = float(o["lat"])
 		has_geo = true
+	_init_common()
+
+
+func setup_world(core_node: Node, guide_node: Node, world: Node) -> void:
+	## Modo world: usa el WorldStreamer (misma geometría y lat/lon que el visor) y pega la guía a su terreno.
+	core = core_node
+	guide = guide_node
+	guide.hud_terrain = false
+	guide.lift = 0.3
+	guide.height_fn = world.height_at
+	world_mode = true
+	W = world
+	scene_dir = world.dir.trim_suffix("/")
+	has_geo = true
+	_init_common()
+
+
+func _init_common() -> void:
 	var proj := ProjectSettings.globalize_path("res://").trim_suffix("/")
 	var repo := proj.get_base_dir()
 	_script = repo.path_join("route-planner/mars_route.py")
@@ -87,12 +108,22 @@ func setup(core_node: Node, guide_node: Node, scene_res_dir: String, scene: Dict
 
 # ------------------------------------------------------------------ georreferencia (misma fórmula que route-planner/geo.py)
 func latlon_to_local(lat: float, lon: float) -> Vector2:
+	if world_mode:   # misma fórmula que WorldStreamer.lonlat_to_world, en float64
+		var o: Dictionary = W.W["origin"]
+		var px: float = (W.planet_r * deg_to_rad(lon) - float(o["mosaic_x0"])) - W.opx
+		var py: float = (float(o["mosaic_y0"]) - W.planet_r * deg_to_rad(lat)) - W.opy
+		return Vector2(px * W.sx, py * W.sz)
 	var dlon := fposmod(lon - lon0 + 180.0, 360.0) - 180.0
 	return Vector2(R_MARS * cos(deg_to_rad(lat0)) * deg_to_rad(dlon), R_MARS * deg_to_rad(lat0 - lat))
 
 
 func local_to_latlon(x: float, z: float) -> Array:
 	## [lat, lon] en float64 (un Vector2 es float32 y pierde ~6 cm de precisión en grados)
+	if world_mode:   # misma fórmula que WorldStreamer.world_to_lonlat
+		var o: Dictionary = W.W["origin"]
+		var X: float = (x / W.sx + W.opx) + float(o["mosaic_x0"])
+		var Y: float = float(o["mosaic_y0"]) - (z / W.sz + W.opy)
+		return [rad_to_deg(Y / W.planet_r), rad_to_deg(X / W.planet_r)]
 	return [lat0 - rad_to_deg(z / R_MARS), fposmod(lon0 + rad_to_deg(x / (R_MARS * cos(deg_to_rad(lat0)))), 360.0)]
 
 
@@ -315,8 +346,10 @@ func request_route(lat: float, lon: float, nombre: String) -> void:
 	else:
 		var p: Vector3 = core.origin.position
 		start = {"x": p.x, "z": p.z}
-	var req := {"scene": scene_dir, "layer": "terrain", "condition": condition, "risk_weight": risk_weight,
+	var req := {"scene": scene_dir, "condition": condition, "risk_weight": risk_weight,
 		"start": start, "goal": {"lat": lat, "lon": lon}}
+	if not world_mode:
+		req["layer"] = "terrain"
 	var f := FileAccess.open(_busy_req, FileAccess.WRITE)
 	f.store_string(JSON.stringify(req))
 	f.close()
@@ -357,30 +390,66 @@ func _finish_request() -> void:
 
 
 # ------------------------------------------------------------------ terreno bajo el jugador
+var _terrain_n_req := 0
+var _terrain_prefix := ""
+
+
 func _load_terrain_map() -> void:
+	## Parche: matriz de toda la escena (se genera una vez). World: ventana t1 alrededor del jugador (ver _ensure_terrain_window).
+	if world_mode:
+		return
 	var prefix := _out_dir.path_join("terreno_" + scene_dir.get_file())
 	if FileAccess.file_exists(prefix + ".u8") and FileAccess.file_exists(prefix + ".json"):
-		var m = JSON.parse_string(FileAccess.get_file_as_string(prefix + ".json"))
-		if m is Dictionary:
-			terrain_meta = m
-			terrain_n = int(m["n"])
-			terrain_step = float(m["step_m"])
-			terrain_half = float(m["half_m"])
-			terrain_cls = FileAccess.get_file_as_bytes(prefix + ".u8")
-			return
+		_read_terrain(prefix)
+		return
 	if _terrain_pid <= 0:                # aún no existe: pedirla al planificador (asíncrono)
+		_terrain_prefix = prefix
 		_terrain_pid = OS.create_process(_py, [_script, scene_dir, "--export-terrain", prefix])
+
+
+func _read_terrain(prefix: String) -> bool:
+	if not (FileAccess.file_exists(prefix + ".u8") and FileAccess.file_exists(prefix + ".json")):
+		return false
+	var m = JSON.parse_string(FileAccess.get_file_as_string(prefix + ".json"))
+	if not m is Dictionary:
+		return false
+	terrain_meta = m
+	terrain_n = int(m["n"])
+	terrain_step = float(m["step_m"])
+	terrain_half = float(m["half_m"])
+	terrain_cls = FileAccess.get_file_as_bytes(prefix + ".u8")
+	return true
+
+
+func _ensure_terrain_window(p: Vector3) -> void:
+	## world: pide (asíncrono) una ventana de clases de ~400 m centrada en el jugador cuando no hay una o se acerca al borde.
+	if _terrain_pid > 0:
+		return
+	if not terrain_cls.is_empty():
+		var x0 := float(terrain_meta["x0"])
+		var z0 := float(terrain_meta["z0"])
+		var w := float(terrain_meta["nc"]) * terrain_step
+		var h := float(terrain_meta["nr"]) * terrain_step
+		if p.x > x0 + 60.0 and p.x < x0 + w - 60.0 and p.z > z0 + 60.0 and p.z < z0 + h - 60.0:
+			return
+	_terrain_n_req += 1
+	_terrain_prefix = _out_dir.path_join("terreno_world_%d" % _terrain_n_req)
+	_terrain_pid = OS.create_process(_py, [_script, scene_dir, "--export-terrain", _terrain_prefix, "--around", str(p.x), str(p.z), "--radius", "200"])
 
 
 func terrain_code_at(x: float, z: float) -> int:
 	## Código de clase (0 roca firme, 1 regolito, 2 duna, 3 bloques) de la celda bajo (x, z); -1 si no hay mapa o está fuera.
 	if terrain_cls.is_empty():
 		return -1
-	var r := int(round((z + terrain_half) / terrain_step))
-	var c := int(round((x + terrain_half) / terrain_step))
-	if r < 0 or c < 0 or r >= terrain_n or c >= terrain_n:
+	var nr := int(terrain_meta.get("nr", terrain_n))
+	var nc := int(terrain_meta.get("nc", terrain_n))
+	var x0 := float(terrain_meta.get("x0", -terrain_half))
+	var z0 := float(terrain_meta.get("z0", -terrain_half))
+	var r := int(round((z - z0) / terrain_step))
+	var c := int(round((x - x0) / terrain_step))
+	if r < 0 or c < 0 or r >= nr or c >= nc:
 		return -1
-	return terrain_cls[r * terrain_n + c]
+	return terrain_cls[r * nc + c]
 
 
 func terrain_name_at(x: float, z: float) -> String:
@@ -394,7 +463,10 @@ func terrain_name_at(x: float, z: float) -> String:
 func tick(player_pos: Vector3, head_basis: Basis, delta: float) -> void:
 	if _terrain_pid > 0 and not OS.is_process_running(_terrain_pid):
 		_terrain_pid = -1
-		_load_terrain_map()
+		if not _read_terrain(_terrain_prefix) and not world_mode:
+			_load_terrain_map()
+	if world_mode:
+		_ensure_terrain_window(player_pos)
 	if _busy_pid > 0 and not OS.is_process_running(_busy_pid):
 		_finish_request()
 	guide.update_player(player_pos, head_basis)

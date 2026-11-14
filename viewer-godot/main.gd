@@ -121,6 +121,7 @@ func _ready_world(dir: String) -> void:
 	_setup_xr()
 	_hud()
 	_load_layers(args)
+	_route_setup_world()
 	if not ("--norings" in args):
 		var fr := FarRings.new()
 		fr.albedo = FAR_ALBEDO
@@ -224,6 +225,8 @@ func _process_world(delta: float) -> void:
 		if Input.is_key_pressed(KEY_A): d.x -= 1
 		if Input.is_key_pressed(KEY_D): d.x += 1
 		var spd := 20.0 if Input.is_key_pressed(KEY_SHIFT) else 2.2
+		if route_ui and route_ui.typing:
+			d = Vector3.ZERO
 		if riding:
 			world_speed = -d.z * 12.0
 		else:
@@ -237,6 +240,9 @@ func _process_world(delta: float) -> void:
 	origin.position = p
 	W.focus = p
 	hud.text = "Mars Route Walker · sol %d · %s · %.0f m de ruta · pendiente %.1f° · H: peligro %s · G: bajar/subir del rover\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm" % [W.route_sol_at(ride_s), "en el rover" if riding else "a pie", ride_s, W.slope_deg(p.x, p.z), "ON" if hazard_on else "off"]
+	if route_ui:
+		route_ui.tick(p, cam.global_basis, delta)
+		hud.text += route_ui.hud_lines(p)
 
 
 func _route_setup() -> void:
@@ -251,6 +257,20 @@ func _route_setup() -> void:
 	route_ui.name = "RouteUI"
 	add_child(route_ui)
 	route_ui.setup(self, guide, PATCH, scene)
+
+
+func _route_setup_world() -> void:
+	# Igual que _route_setup() pero para el modo world: la guía queda pegada al terreno de WorldStreamer. --noroute lo desactiva.
+	if "--noroute" in OS.get_cmdline_user_args():
+		return
+	var guide: Node = load("res://route/guide_path.gd").new()
+	guide.name = "GuidePath"
+	guide.json_path = ""
+	add_child(guide)
+	route_ui = load("res://route/route_ui.gd").new()
+	route_ui.name = "RouteUI"
+	add_child(route_ui)
+	route_ui.setup_world(self, guide, W)
 
 
 func _cli_camera() -> void:
