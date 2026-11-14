@@ -13,7 +13,7 @@ const MAX_ANG := deg_to_rad(60.0)
 const SEAT_Y := 1.0              # altura de la cubierta (el modelo mide 1.85 m con el mastil)
 const DESKTOP_EYE := 0.9         # ojos sobre la cubierta en escritorio (sentado)
 var lever_pos := Vector3(0.4, SEAT_Y + 0.3, -0.55)   # en el marco del rover (x der., y arriba, -z adelante)
-const ROVER_LOD := 3          # nivel de detalle del modelo (mayor = menos triangulos)
+const ROVER_LOD := 6          # nivel de detalle del modelo (mayor = menos triangulos)
 const LEVER_LEN := 0.45
 
 var lever := 0.0                 # -1..1, fraccion de la velocidad maxima
