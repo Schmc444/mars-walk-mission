@@ -8,6 +8,19 @@ var core: Node
 var rover: Node3D
 var rover_s := 0.0
 
+const MAX_V := 50.0 / 3.6        # 50 km/h en m/s
+const MAX_ANG := deg_to_rad(60.0)
+const SEAT_Y := 1.0              # altura de la cubierta (el modelo mide 1.85 m con el mastil)
+const DESKTOP_EYE := 0.9         # ojos sobre la cubierta en escritorio (sentado)
+const LEVER_POS := Vector3(0.4, SEAT_Y + 0.3, -0.55)   # en el marco del rover (x der., y arriba, -z adelante)
+const LEVER_LEN := 0.45
+
+var lever := 0.0                 # -1..1, fraccion de la velocidad maxima
+var pivot: Node3D
+var knob: Node3D
+var speed_label: Label3D
+var grabbing := false
+
 
 func setup(w: WorldStreamer, c: Node) -> void:
 	world = w
@@ -16,14 +29,44 @@ func setup(w: WorldStreamer, c: Node) -> void:
 	if rover:
 		rover_s = core.ride_s
 		_place()
+		_build_lever()
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--lever="):
+			lever = clampf(float(a.get_slice("=", 1)), -1.0, 1.0)
 
 
-func _process(_delta: float) -> void:
+func _unhandled_input(e: InputEvent) -> void:
+	if not (e is InputEventKey and e.pressed and not e.echo):
+		return
+	match e.keycode:
+		KEY_EQUAL, KEY_PLUS, KEY_KP_ADD:
+			lever = clampf(lever + 0.1, -1.0, 1.0)
+		KEY_MINUS, KEY_KP_SUBTRACT:
+			lever = clampf(lever - 0.1, -1.0, 1.0)
+		KEY_SPACE:
+			lever = 0.0
+
+
+func _process(delta: float) -> void:
 	if rover == null or not world.is_ready():
 		return
 	if core.riding:
+		_grab_input()
+		if absf(lever) > 0.001:
+			# la palanca manda: se reemplaza la velocidad que ya aplico el core este cuadro
+			core.ride_s = clampf(core.ride_s + (lever * MAX_V - core.world_speed) * delta, 0.0, world.route_length())
 		rover_s = core.ride_s
 	_place()
+	if core.riding:
+		core.origin.position = rover.position + rover.basis.y * SEAT_Y
+		if not core.in_xr:
+			core.cam.position.y = DESKTOP_EYE
+	elif not core.in_xr:
+		core.cam.position.y = 1.6
+	_update_lever()
+	if "--ruta-face" in OS.get_cmdline_user_args():
+		var f := -rover.global_transform.basis.z
+		core.yaw = atan2(-f.x, -f.z)
 
 
 func _place() -> void:
@@ -60,7 +103,8 @@ func _load_rover() -> Node3D:
 	var acc: Array = [null]
 	_aabb(holder, holder, acc)
 	var bb: AABB = acc[0]
-	scene.position = Vector3(-(bb.position.x + bb.size.x / 2.0), -bb.position.y, -(bb.position.z + bb.size.z / 2.0))
+	scene.basis = Basis(Vector3.UP, PI)   # el modelo mira hacia +z; el rover avanza hacia -z
+	scene.position = Vector3(bb.position.x + bb.size.x / 2.0, -bb.position.y, bb.position.z + bb.size.z / 2.0)
 	return holder
 
 
@@ -70,3 +114,71 @@ func _aabb(n: Node, root: Node3D, acc: Array) -> void:
 		acc[0] = a if acc[0] == null else (acc[0] as AABB).merge(a)
 	for ch in n.get_children():
 		_aabb(ch, root, acc)
+
+
+func _build_lever() -> void:
+	pivot = Node3D.new()
+	add_child(pivot)
+	var base := MeshInstance3D.new()
+	var bm := CylinderMesh.new()
+	bm.top_radius = 0.05
+	bm.bottom_radius = 0.07
+	bm.height = 0.06
+	base.mesh = bm
+	base.material_override = _mat(Color(0.15, 0.15, 0.17))
+	pivot.add_child(base)
+	var stick := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.012
+	cm.bottom_radius = 0.015
+	cm.height = LEVER_LEN
+	stick.mesh = cm
+	stick.position.y = LEVER_LEN / 2.0
+	stick.material_override = _mat(Color(0.7, 0.7, 0.72))
+	pivot.add_child(stick)
+	knob = MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.035
+	sm.height = 0.07
+	knob.mesh = sm
+	knob.position.y = LEVER_LEN
+	knob.material_override = _mat(Color(0.9, 0.2, 0.1))
+	pivot.add_child(knob)
+	speed_label = Label3D.new()
+	speed_label.font_size = 48
+	speed_label.pixel_size = 0.0007
+	speed_label.no_depth_test = true
+	speed_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	speed_label.position = Vector3(0, LEVER_LEN + 0.12, 0)
+	pivot.add_child(speed_label)
+
+
+func _mat(c: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = c
+	m.no_depth_test = true
+	m.render_priority = 10
+	return m
+
+
+func _update_lever() -> void:
+	pivot.visible = core.riding
+	if not core.riding:
+		return
+	pivot.global_transform = rover.global_transform * Transform3D(Basis(Vector3.RIGHT, -lever * MAX_ANG), LEVER_POS)
+	speed_label.text = "%+.0f km/h" % (lever * 50.0)
+
+
+func _grab_input() -> void:
+	if not core.in_xr or core.right == null:
+		return
+	var g: float = core.right.get_float("grip")
+	var hand: Vector3 = core.right.global_position
+	if not grabbing:
+		if g > 0.7 and hand.distance_to(knob.global_position) < 0.2:
+			grabbing = true
+	elif g < 0.4:
+		grabbing = false
+	if grabbing:
+		var d: Vector3 = rover.global_transform.affine_inverse() * hand - LEVER_POS
+		lever = clampf(atan2(-d.z, d.y) / MAX_ANG, -1.0, 1.0)
