@@ -66,7 +66,14 @@ func setup(w: WorldStreamer, c: Node) -> void:
 		ray.visible = false
 		reticle.visible = false
 		print("camara: reproduciendo ", play_data.size(), " muestras")
-	RenderingServer.frame_pre_draw.connect(_late)
+	if play_data.is_empty():
+		RenderingServer.frame_pre_draw.connect(_late)
+	else:
+		var t := Node.new()
+		t.set_script(load("res://layers/camara/tardio.gd"))
+		t.capa = self
+		t.process_priority = 1000
+		add_child(t)
 	if core.right != null:
 		core.right.button_pressed.connect(func(n: String): if n == "trigger_click": _rec_toggle())
 
@@ -176,6 +183,8 @@ func _process(_d: float) -> void:
 	if not play_started:
 		play_started = true
 		play_frame = int(play_from * play_fps)
+		if core.get("hud") != null:
+			core.hud.visible = false
 		print("camara: PLAY_START frame ", Engine.get_frames_drawn())
 	var r := _row()
 	core.ride_s = r[0]
