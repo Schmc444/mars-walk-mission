@@ -106,7 +106,8 @@ python waypoints.py add rescate "Punto de rescate" 18.4830 77.3690 "donde rescat
 python waypoints.py del rescate
 ```
 Las entradas `base` y `rescate_ingenuity` son **placeholders** (`"placeholder": true`, lat/lon `null`): reemplázalas con coordenadas reales. Usarlas como destino da un error claro.
-`origen_escena` (de `scene.json`) e `ingenuity` (de `layers/ingenuity/ingenuity.json`) son coordenadas reales del repo; Ingenuity queda a ~2.7 km del origen, fuera del parche de 1 m (solo con `--layer ring_3km`).
+`origen_escena` (de `scene.json`) e `ingenuity` (de `layers/ingenuity/ingenuity.json`) son coordenadas reales del repo. En el **world** Ingenuity cae en (x −7216, z −3120) (tile 11_20) y es alcanzable;
+en el parche de 1 m queda fuera de la capa (a ~2.7 km solo cabe en `--layer ring_3km` de `patch_793`). Ojo: `origen_escena` es el origen del parche, no el del world (en el world el origen es el primer vértice de la ruta del rover).
 
 ## Integración con el mapa
 
@@ -148,7 +149,8 @@ Por proceso (lo que usa Godot): `python mars_route.py ESCENA --request req.json 
 | Campo | Tipo / unidad | Significado |
 |---|---|---|
 | `scene` | texto | carpeta de la escena (con `scene.json`); si falta se usa el argumento posicional |
-| `layer` | texto | `terrain` (1 m, ±45 m; default) o `ring_3km` (6 m, ±3 km) |
+| `layer` | texto | parche: `terrain` (1 m, ±45 m; default) o `ring_3km` (6 m, ±3 km). Se ignora en world |
+| `lod` | 1, 5 ó 20 | solo world: fuerza el paso del terreno en m (default: según el tamaño del recorte) |
 | `start`, `goal` | objeto | `{"x","z"}` metros locales (x este, z sur) · `{"lat","lon"}` grados decimales (lon este +) · `{"waypoint": id_o_nombre}`. Default de `start`: `{"x":0,"z":0}` |
 | `condition` | texto | `normal` (default), `tormenta_polvo`, `frio_sombra` |
 | `risk_weight` | número ≥ 0 | peso de riesgo (default 1.0) |
@@ -169,6 +171,23 @@ Por proceso (lo que usa Godot): `python mars_route.py ESCENA --request req.json 
 si terminó y entonces llama `GuidePath.set_route(res_N.json)`. Una petición nueva mata la anterior. Es un proceso por petición (~0.4 s en el parche, ~3 s en el anillo, casi todo carga de capas);
 si más adelante hace falta menos latencia, el siguiente paso es un proceso persistente que mantenga las capas cargadas. Python: `../.venv/bin/python` o `python3`.
 
+## Modo world (mundo por tiles)
+
+Una carpeta con `world.json` (release `world-v1`, `kind: tiled_world`) también es una "escena": `python mars_route.py /ruta/world --goal-latlon 18.4972 77.3225` o `--waypoint ingenuity`.
+Coordenadas: las del world (**x este, z sur, origen = primer vértice de la ruta del rover**, y = elevación − `datum_m`). Como cada petición cubre una zona distinta, el grid se **ensambla por petición** (`world_grid.py`):
+
+1. Rectángulo inicio–meta + margen (`max(100 m, 10 % del tramo, tope 500 m)`), alineado a 100 m y recortado a los tiles. Cada punto debe caer en un tile existente (`fuera_de_capa`).
+2. **LOD** (la regla más simple): `t1` (1 m) si el recorte tiene ≤ 250 000 celdas (~500×500 m); si no `t5` (5 m) si ≤ 1 600 000; si no `t20`; si ni así cabe, error. `--lod 1|5|20` (o `"lod"` en la petición) lo fuerza.
+3. Geometría de `world.gd`: el mosaico es una cuadrícula en píxeles con `spacing_x ≈ 0.9485` m/px en x y `spacing_z = 1`; cada tile trae (block/N+1)² muestras con el borde este/sur compartido. El grid del planificador es cuadrado **en metros**, así que se interpola bilinealmente (igual que `WorldStreamer.height_at`); un test comprueba que sobre un plano la altura es exacta cruzando bordes de tiles.
+4. Pendiente, rugosidad, sombra, clases, costos, A\* (jerárquico si > 200 000 celdas), suavizado y exportación son los mismos. El contrato JSON no cambia (`points` x/y/z en el frame del world; `lonlat` por punto).
+5. **Terreno**: proxy con el ortho del tile (`o100` para ≤ 2 m, `o400` si no), con percentiles calculados **solo sobre las celdas con datos del recorte** (así que la clasificación de un mismo lugar puede cambiar un poco entre recortes). `terrain_map` externo aún no se soporta en world. La huella del rover (`route.json`) se usa como preferencia, como en el parche.
+6. **Nodata**: una celda fuera de los tiles, o en un tile con `nodata_frac ≥ 0.5` en `world.json` (sus alturas fueron rellenadas), es intransitable (se mueve a la celda transitable más cercana o da `intransitable`). Con `nodata_frac` parcial (< 0.5) no se sabe qué celdas son: se usa el tile y se avisa en `warnings`. Hay 8 tiles con nodata en el world de Jezero (bx 2-3, by 23-27).
+
+`geo.WorldGeo` es una réplica exacta de `WorldStreamer.lonlat_to_world / world_to_lonlat` (usa `origin.mosaic_x0/y0`, `origin.px`, `spacing_x/z` y el radio; `origin.lat0` = 18.4666 **no interviene**, solo fijó `spacing_x` al construir).
+Un test compara contra valores calculados por Godot (diferencia < 2 mm, la de float32).
+
+`--export-terrain PREFIJO --around X Z [--radius 200]` escribe una ventana t1 de clases alrededor de un punto (la usa el HUD del visor).
+
 ## Tiempos de planificación (medidos)
 
 | Caso | Capa | Tiempo de `plan_route` (capas ya cargadas) | Proceso completo |
@@ -177,14 +196,19 @@ si más adelante hace falta menos latencia, el siguiente paso es un proceso pers
 | (0,0) → (1800,−1500), jerárquica | anillo 6 m, 1000×1000 | **~1.6 s** (grueso 0.3 s, fino 0.6 s, suavizado 0.6 s) | 3.1 s |
 | ídem, sin jerarquía | anillo | 6.0 s (A\* 5.5 s, 121 293 nodos) | – |
 
+| World: (0,0) → (40,40), t1 | recorte 301×301 | **~270 ms** (recorte 180 ms + A\* 86 ms) | – |
+| World: (0,0) → (300,−200), t1 + jerárquica | recorte 501×401 | **~850 ms** | – |
+| World: (0,0) → **Ingenuity** (8.6 km, t5 + jerárquica) | recorte 1661×841 | **~6.2 s** (recorte 0.9 s, grueso 1.9 s, A\* 2.1 s, suavizado 1.1 s) | ~7 s |
+
 **Elegí la jerarquía automática para capas grandes** porque la ruta larga exacta tarda 6 s (y antes ~30 s, casi todo en el suavizado, que ahora está vectorizado y acotado):
 demasiado para uso interactivo. La jerárquica explora 8× menos nodos y da una ruta ~0.6 % más lenta en ETA (3 592 s vs 3 574 s) en la prueba. El parche de 1 m no la necesita.
 La cuadrícula gruesa promedia pendientes, así que puede pasar por alto un paso estrecho entre zonas bloqueadas; en ese caso, si no encuentra ruta, vuelve a la búsqueda completa. `--hier off` fuerza la exacta.
 
 ## En el visor (Godot / VR)
 
-Todo está en `viewer-godot/route/`: `guide_path.gd` (la línea guía) y `route_ui.gd` (destino, HUD, proceso externo). `main.gd` solo los crea en modo parche (`_route_setup()`, `--noroute` los desactiva)
-y agrega la salida al HUD. **No funciona aún en modo mundo (`--world=`)**: el planificador trabaja sobre las escenas de parche.
+Todo está en `viewer-godot/route/`: `guide_path.gd` (la línea guía) y `route_ui.gd` (destino, HUD, proceso externo). `main.gd` los crea con `_route_setup()` (modo parche) o `_route_setup_world()` (modo `--world=`, que usa
+`RouteUI.setup_world`) y agrega la salida al HUD; `--noroute` los desactiva. En world la guía se re-pega al terreno del visor (`WorldStreamer.height_at`) y flota 0.3 m, porque los LOD de la malla difieren del que usó el planificador;
+el HUD muestra "Terreno: …" con una ventana t1 de ~400 m alrededor del jugador que el planificador regenera en segundo plano al acercarte al borde.
 
 Teclas: **L** escribir lat/lon (valida formato y rango y muestra el error en pantalla) · **P** lista de puntos guardados, número 1-9 · **R** recalcular desde donde estás hasta el último destino · **C** borrar ruta · **Esc** cierra el diálogo.
 El HUD muestra "Terreno: duna" (clase bajo el jugador, de la matriz del planificador), lat/lon, "(estimado: proxy)" si aplica, ETA, advertencias y "Calculando…".
@@ -192,7 +216,8 @@ El HUD muestra "Terreno: duna" (clase bajo el jugador, de la matriz del planific
 `GuidePath`: chevrones en el suelo coloreados por riesgo (verde = ok, **morado = duna / arena suelta**, ámbar = pendiente ≥ 15°, rojo = bloques o ≥ 20°), baliza con nombre y ETA en la meta, flecha flotante 4 m adelante
 (o de vuelta a la ruta si te sales a más de 3 m). `set_route(ruta_json)` recarga una ruta en ejecución (acepta el `guide_path.json` o el sobre de `plan_route`); `clear_route()` la borra.
 
-Prueba headless (Godot 4.7.2): `godot --headless --path viewer-godot --script res://route/selftest.gd -- --patch=patch_793`.
+Prueba headless (Godot 4.7.2): `godot --headless --path viewer-godot --script res://route/selftest.gd -- --patch=patch_793` o `-- --world=/ruta/al/world` (en world incluye Ingenuity como destino).
+Para probarlo a mano: `godot --path viewer-godot --xr-mode off -- --world=/ruta/al/world --sol=1114`, pulsa **G** para bajar del rover (a pie), **P** y **2** (Ingenuity) o **L** y escribe `18.4972, 77.3225`; espera el "Calculando…" (~7 s) y sigue la línea.
 Si el caché de clases del proyecto está desactualizado (error `FarRings not declared`), corre antes `godot --headless --editor --quit --path viewer-godot`.
 **No probado en el headset VR** (la entrada de texto de `L` es por teclado; en VR hace falta un teclado virtual o usar `P`).
 
@@ -208,5 +233,8 @@ Si el caché de clases del proyecto está desactualizado (error `FarRings not de
 - Las rocas menores a 1 m no aparecen en el DEM. Las rocas del visor son sintéticas, así que la ruta no las esquiva.
 - Los parámetros (traje 0.55, 15°/25°, factores y riesgo por terreno) son supuestos razonables; no salen de mediciones.
 - lat/lon usa una proyección esférica local; el origen debe estar en `scene.json`.
-- El parche caminable mide solo 90 m; destinos más lejos (p. ej. Ingenuity, ~2.7 km) solo se planifican por CLI en `ring_3km`.
+- El parche caminable mide solo 90 m; para destinos más lejos usa el modo world.
+- **World**: la ruta larga (8.6 km, t5) tarda ~6 s: no es instantánea (hay "Calculando…" y no se bloquea el frame). A 5 m las pendientes se suavizan, así que la ruta larga puede cruzar pendientes locales más duras de lo que dice `max_slope_deg`; los últimos metros no se refinan a 1 m.
+- **World**: los percentiles del proxy dependen del recorte; el terreno bajo el jugador (ventana t1) y el de una ruta larga (t5) pueden no coincidir. 8 tiles tienen nodata (se bloquean); la ruta no los cruza. `terrain_map` externo no está soportado en world.
+- **World**: el ortho de world se usa con el mismo proxy de brillo; no se probó contra una verdad de terreno.
 - Un punto intransitable se mueve a la celda transitable más cercana, que podría ser una zona aislada (entonces el error es `sin_ruta`).

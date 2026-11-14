@@ -15,7 +15,7 @@ from PIL import Image
 
 import geo
 
-LODS = [(1, "t1", 501), (5, "t5", 101), (20, "t20", 26)]    # (paso m, carpeta, muestras por lado)
+LODS = [(1, "t1"), (5, "t5"), (20, "t20")]    # (paso en píxeles del mosaico = m aprox., carpeta); muestras por lado = block/paso + 1
 CELLS_T1, CELLS_MAX = 250_000, 1_600_000
 NODATA_TILE = 0.5
 SNAP_M = 100.0              # el recorte se alinea a múltiplos de 100 m (así se reutiliza al replanificar desde cerca)
@@ -63,11 +63,11 @@ class World:
 
 
 def pick_lod(nx_m, nz_m):
-    """(paso, carpeta, muestras) para un recorte de nx_m x nz_m metros, o None si es demasiado grande."""
-    for step, d, n in LODS:
+    """(paso, carpeta) para un recorte de nx_m x nz_m metros, o None si es demasiado grande."""
+    for step, d in LODS:
         cells = (nx_m / step + 1) * (nz_m / step + 1)
         if cells <= (CELLS_T1 if step == 1 else CELLS_MAX):
-            return step, d, n
+            return step, d
     return None
 
 
@@ -77,7 +77,8 @@ def build_crop(world, x_min, x_max, z_min, z_max, step_lod=None):
     if lod is None:
         raise geo.GeoError("recorte de %.1f x %.1f km demasiado grande (maximo %d celdas incluso a 20 m)" % (
             (x_max - x_min) / 1000, (z_max - z_min) / 1000, CELLS_MAX), "fuera_de_capa")
-    step, d, n_s = lod
+    step, d = lod
+    n_s = int(world.block // step) + 1
     nx, nz = int(round((x_max - x_min) / step)) + 1, int(round((z_max - z_min) / step)) + 1
     xs, zs = x_min + np.arange(nx) * step, z_min + np.arange(nz) * step
     pxs, pys = xs / world.sx + world.opx, zs / world.sz + world.opy
@@ -86,7 +87,7 @@ def build_crop(world, x_min, x_max, z_min, z_max, step_lod=None):
     img = np.full((nz, nx), np.nan)
     nodata = np.ones((nz, nx), bool)
     partial = []
-    st_px = float(step_lod_px(step, d, world))
+    st_px = float(step)       # t1 = 1 px, t5 = 5 px, t20 = 20 px
     for bx in np.unique(bcol):
         cols = np.nonzero(bcol == bx)[0]
         for by in np.unique(brow):
@@ -132,11 +133,6 @@ def build_crop(world, x_min, x_max, z_min, z_max, step_lod=None):
     return g
 
 
-def step_lod_px(step_m, lod_dir, world):
-    """Paso de muestreo del LOD en píxeles del mosaico (t1 = 1 px, t5 = 5 px, t20 = 20 px)."""
-    return {"t1": 1.0, "t5": 5.0, "t20": 20.0}[lod_dir]
-
-
 def crop_box(world, pts, margin=None, step_lod=None):
     """Rectángulo mínimo que contiene `pts` [(x, z)...] + margen, alineado a SNAP_M y recortado a los tiles: (x_min, x_max, z_min, z_max, step_lod).
 
@@ -150,8 +146,8 @@ def crop_box(world, pts, margin=None, step_lod=None):
     span = max(max(xs) - min(xs), max(zs) - min(zs))
     mg = max(100.0, min(0.1 * span, 500.0)) if margin is None else margin
     sn = lambda v, f: f(v / SNAP_M) * SNAP_M
-    return (max(sn(min(xs) - mg, math.floor), sn(world.xmin, math.ceil)), min(sn(max(xs) + mg, math.ceil), sn(world.xmax, math.floor)),
-            max(sn(min(zs) - mg, math.floor), sn(world.zmin, math.ceil)), min(sn(max(zs) + mg, math.ceil), sn(world.zmax, math.floor)), step_lod)
+    return (max(sn(min(xs) - mg, math.floor), world.xmin), min(sn(max(xs) + mg, math.ceil), world.xmax),
+            max(sn(min(zs) - mg, math.floor), world.zmin), min(sn(max(zs) + mg, math.ceil), world.zmax), step_lod)
 
 
 def crop_for(world, pts, margin=None, step_lod=None):
