@@ -14,6 +14,8 @@ var rec_save_clock := 0.0
 var rec_path := ""
 var play_data: Array = []
 var play_frame := 0
+var play_from_s := 0.0
+var play_first := true
 var play_fps := 30.0
 var rover_full := false
 var rover_full_hq := "--rover=hq" in OS.get_cmdline_user_args()
@@ -42,6 +44,11 @@ func setup(w: WorldStreamer, c: Node) -> void:
 			if j != null:
 				play_data = j
 				print("ruta: reproduciendo ", play_data.size(), " muestras")
+		elif a.begins_with("--play-from="):
+			play_from_s = float(a.get_slice("=", 1))
+		elif a.begins_with("--video-res="):
+			var wh := a.get_slice("=", 1).split("x")
+			get_window().size = Vector2i(int(wh[0]), int(wh[1]))
 		elif a.begins_with("--fps="):
 			play_fps = float(a.get_slice("=", 1))
 		elif a == "--rec":
@@ -348,12 +355,20 @@ func _play_row() -> Array:
 
 
 func _play_apply() -> void:
+	if play_frame == 0 and play_from_s > 0.0:
+		play_frame = int(play_from_s * play_fps)
 	var r := _play_row()
 	core.ride_s = r[0]
 	core.riding = r[1] == 1
 
 
 func _play_cam() -> void:
+	if play_frame == 0 and play_from_s > 0.0:
+		play_frame = int(play_from_s * play_fps)
+	core.hud.visible = false
+	if play_first:
+		play_first = false
+		print("ruta: PLAY_START frame ", Engine.get_frames_drawn())
 	var r := _play_row()
 	if r[1] == 1:
 		core.origin.position = rover.position + rover.basis.y * SEAT_Y
