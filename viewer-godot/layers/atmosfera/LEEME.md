@@ -1,51 +1,80 @@
 # Capa Atmósfera (Kevin, rama `capa/atmosfera`)
 
-Panel lateral con cinco valores de la atmósfera donde está el jugador, cada uno con su color, más una **neblina de colores por zonas**
-que se ve de lejos y te rodea cuando entras en la zona. En VR el panel flota pegado a la vista.
+Panel lateral con cinco valores de la atmósfera donde está el jugador, **vistas de falso color** a pantalla completa (una por parámetro),
+un **sonido de cercanía** y una neblina de colores por zonas. En VR el panel flota pegado a la vista.
+
+## Tramo de la ruta del equipo
+
+Punto **A = sol 1063** y punto **B = sol 1116** (los mismos de la capa de puntos de interés). Son ~0.6 km de ruta dentro de una caja de
+~330 × 95 m, así que el tramo completo cabe de sobra en el mapa de 3.2 km de la capa: mientras el jugador está a menos de 700 m del tramo,
+el mapa queda **fijo y centrado en el tramo** (las zonas no se mueven al caminar). Fuera del tramo, el mapa sigue al jugador como antes.
+
+Para empezar en A: `--sol=1063` (opción del núcleo). Otro tramo: `--atm-tramo=A,B`; sin tramo: `--atm-tramo=no`.
+Las constantes están arriba de `layer.gd` (`TRAMO_SOL_A`, `TRAMO_SOL_B`). El núcleo decide hasta dónde llega el rover; la capa no lo detiene en B.
 
 ## Panel
 
-| Color | Parámetro | Valor que muestra |
-|---|---|---|
-| Azul | Oxígeno | % del aire (ej. 0.16 %) |
-| Verde | Radiación | mSv/día (ej. 0.66 mSv/día) |
-| Turquesa | Temperatura | °C del aire a 1.5 m (ej. −58 °C) |
-| Amarillo | Presión | Pa (ej. 779 Pa) |
-| Rosado | Polvo | opacidad τ (ej. τ 1.54) |
+Solo texto, una línea por parámetro (pedido de Kevin; se agrega otra cosa solo si él lo indica):
 
-Nada más: sin encabezado, leyenda ni textos extra (pedido de Kevin; se agregan solo si él lo indica).
+```
+Oxígeno: 0.16 %
+Radiación: 0.68 mSv/día
+Temperatura: -61 °C
+Presión: 741 Pa
+Polvo: τ 0.65
+```
+
+La línea de la vista activa va marcada con ▶ y en amarillo. Con el sonido encendido se agrega `Sonido: 880 Hz`.
+
+Posición: en `layer.gd`, `PANEL_MARGEN_X` / `PANEL_MARGEN_Y` (pantalla, fracción de la ventana desde el borde derecho y de arriba)
+y `PANEL_VR_X`, `PANEL_VR_ARRIBA`, `PANEL_VR_DIST`, `PANEL_VR_GIRO` (VR, en metros y radianes). Subir los márgenes o bajar `PANEL_VR_X`
+lo acerca al centro de la vista.
 
 ## Teclas
 
 | Tecla | Qué hace |
 |---|---|
-| **F1** | Neblina de **polvo** (rosado claro = poco, morado oscuro = mucho) |
-| **F2** | Neblina de **radiación** (verde claro = menos, verde oscuro = más) |
-| **F3** | Neblina de **oxígeno** (azul claro = más O2, azul oscuro = menos) |
+| **P** | Vista de **calor** (cámara térmica) |
+| **O** | Vista de **radiación** |
+| **K** | Vista de **oxígeno** |
+| **M** | Vista de **presión** |
+| **N** | Vista de **polvo** (los remolinos se ven como columnas) |
+| **J** | **Sonido** ON/OFF |
 | **F6** | Mostrar u ocultar el panel |
-| **F7** | Neblina de **presión** (amarillo claro = más, café oscuro = menos). Las lomas tienen menos presión que las hondonadas |
-| **F8** | Neblina de **temperatura** del aire a 1.5 m (turquesa claro = menos frío, turquesa oscuro = más frío) |
+| F1 · F2 · F3 · F7 · F8 | Neblina por zonas de polvo · radiación · oxígeno · presión · temperatura (una a la vez) |
 
-Solo hay **una neblina activa a la vez**: F2 con el polvo encendido cambia directo a radiación; repetir la misma tecla la apaga.
-El panel muestra siempre los cinco valores al mismo tiempo.
+**Vistas:** una a la vez (repetir la tecla la apaga). Todas usan la misma paleta, para que se lean igual:
+**azul = menos** de ese parámetro … cian, verde, amarillo, rojo … **magenta = más**. La escala es automática (como una cámara térmica):
+del 5 % al 95 % de los valores en el mapa alrededor, así siempre se ven las diferencias aunque sean pequeñas.
+- **Calor:** temperatura del aire del mapa + lo que calienta el sol según hacia dónde mira la superficie + el brillo de la escena (las
+  sombras salen más frías). ±14 °C alrededor del suelo plano a esa hora. El cielo de Marte sale frío.
+- **Radiación:** dosis del mapa. El cielo sale alto (de ahí llegan los rayos cósmicos).
+- **Oxígeno / presión:** del mapa; bajan con la altura, así que el cielo sale bajo. En presión, rojo = zonas bajas (más aire encima).
+- **Polvo:** opacidad del mapa + remolinos de polvo como columnas.
+Son visualizaciones del modelo de la capa (SINTÉTICO con base física, ver abajo), no mediciones.
 
-Presión y temperatura cambian muy poco en 3 km (unos 10 Pa y 1-3 °C), así que su escala de color va del 5 % al 95 % de los valores
-alrededor del jugador y su neblina de volumen es más tenue: el contraste se ve en el suelo.
+**Sonido (J):** un tono que sube de frecuencia al acercarse a una zona alta del parámetro de la vista activa (sin vista: el más cercano
+de los cinco). "Zona alta" = casillas sobre el percentil 90 del mapa. Lejos (≥ 600 m): 220 Hz; dentro de la zona: 1760 Hz (3 octavas),
+con escala exponencial (cada paso igual de distancia sube igual en tono). El oscilador es de fase continua (NCO) y la frecuencia cambia
+con un filtro de un polo (constante de tiempo 80 ms) para que no salte; lleva un poco de ruido blanco de fondo.
 
-**VR:** todavía no hay botones del control asignados. Para asignarlos, llama a `activar(POLVO | RAD | O2 | PRES | TEMP)`
-o `alternar_panel()`. Ojo: el núcleo ya usa los botones A/B/X/Y para la capa de peligro de pendiente (H).
+**VR:** todavía no hay botones del control asignados. Para asignarlos: `alternar_vista(VISTA_CALOR | VISTA_RAD | VISTA_O2 | VISTA_PRES | VISTA_POLVO)`,
+`alternar_sonido()`, `activar(POLVO | RAD | O2 | PRES | TEMP)` o `alternar_panel()`. Ojo: el núcleo ya usa A/B/X/Y para la capa de peligro (H).
+
+Presión y temperatura cambian muy poco en 3 km (unos 10 Pa y 1-3 °C); por eso todas las escalas son locales.
 
 ## Opciones para probar (después de `--`)
 
+`--atm-vista=calor|radiacion|oxigeno|presion|polvo` (empezar con esa vista) · `--atm-sonido` · `--atm-tramo=1063,1116` ·
 `--atm=polvo|radiacion|oxigeno|presion|temperatura` (empezar con esa neblina) ·
-`--atm-sol=316` (forzar un sol, por ejemplo la tormenta DS-1) · `--atm-hora=4` (forzar la hora local, 0-24; si no, sale del sol de la escena) ·
+`--atm-sol=316` (forzar un sol) · `--atm-hora=4` (forzar la hora local, 0-24; si no, sale del sol de la escena) ·
 `--atm-panel-3d` (ver el panel flotante como en VR, sin visor).
 
 La escena tiene un sol fijo (del núcleo). La capa lo lee para sacar la hora local aproximada (~08:30) y qué laderas reciben más sol.
-Con `--atm-hora` cambian los números y la neblina, pero la luz de la escena sigue igual.
+Con `--atm-hora` cambian los números y las vistas, pero la luz de la escena sigue igual.
 
 ```bash
-godot --path viewer-godot --xr-mode off -- --world=/ruta/al/mundo --sol=448 --layers=atmosfera --atm=polvo
+godot --path viewer-godot --xr-mode off -- --world=/ruta/al/mundo --sol=1063 --layers=atmosfera,piedras --atm-vista=calor
 ```
 
 ## Archivos
@@ -55,6 +84,7 @@ godot --path viewer-godot --xr-mode off -- --world=/ruta/al/mundo --sol=448 --la
 | `layer.gd` | La capa: teclas, panel (pantalla y VR), mapa de valores alrededor del jugador |
 | `modelo.gd` | Las fórmulas y los valores base (con la fuente al lado de cada número) |
 | `neblina.gdshader` | La neblina: recorre el rayo de cada píxel por un mapa de 3.2 km × 3.2 km alrededor del jugador, y pinta una capa baja pegada al suelo donde el valor está sobre la mediana del mapa (p50 → p95), para que las zonas se lean sobre el terreno. El color siempre es el valor absoluto de la leyenda |
+| `vista.gdshader` | Las cinco vistas (P calor, O radiación, K oxígeno, M presión, N polvo): cuadro a pantalla completa que lee la profundidad y la imagen de la escena y la pinta con la paleta térmica. Corrige el tonemapping ACES del núcleo para que los colores salgan vivos |
 | `textos.gd` | Textos de justificación de cada número (eran la tecla F5). **No se usa por ahora**; queda por si se vuelven a mostrar |
 
 El mapa de valores son dos texturas: `campo` (R polvo, G radiación, B falta de O2 en 0..1, A altura del suelo) y `campo2` (R presión en Pa,
@@ -96,4 +126,5 @@ para **ilustrar** cómo se vería un mapa así. Los remolinos de polvo sí son l
   `--atm-panel-3d`. En VR el shader usa la rama `USE_MULTIVIEW` (profundidad por ojo); si da error en el visor, revisar esa parte de `neblina.gdshader`.
 - **Rendimiento** (Intel Iris Xe, 1600×900, con la capa piedras): con cualquier neblina +7-9 ms por frame (~3 ms fijos por leer la profundidad, ~0.25 ms por paso).
   La neblina hace 24 pasos por píxel y solo evalúa los remolinos que cruza el rayo (máx. 4). Si va lento en la Steam Frame, bajar `PASOS` en el shader.
+  Las vistas (P, O, K, M, N) cuestan ~3-6 ms por frame (copia de la pantalla + una pasada); en VR usan la rama `USE_MULTIVIEW` de `vista.gdshader` (no probada en visor).
 - Si consiguen datos reales (por ejemplo, la tabla de τ de MEDA por sol), se reemplazan las funciones de `modelo.gd`.

@@ -1,23 +1,30 @@
 extends Node3D
-# CAPA ATMOSFERA (Kevin). Panel lateral con 5 valores (oxigeno, radiacion, temperatura, presion, polvo) + neblina de colores por zonas.
-#   F1 polvo · F2 radiacion · F3 oxigeno · F7 presion · F8 temperatura   (una neblina a la vez; repetir la tecla la apaga)
+# CAPA ATMOSFERA (Kevin). Panel lateral con 5 valores (oxigeno, radiacion, temperatura, presion, polvo), vistas de falso color
+# a pantalla completa, sonido de cercania y neblina de colores por zonas.
+#   Vistas (una a la vez; repetir la tecla la apaga):  P calor · O radiacion · K oxigeno · M presion · N polvo
+#   J sonido ON/OFF: tono que sube de frecuencia al acercarte a una zona con el parametro alto (el de la vista activa,
+#     o el mas cercano de los cinco si no hay vista)
+#   F1 polvo · F2 radiacion · F3 oxigeno · F7 presion · F8 temperatura: neblina por zonas (una a la vez)
 #   F6 mostrar u ocultar el panel
+# Tramo de la ruta del equipo: A = sol 1063, B = sol 1116 (TRAMO_SOL_A / TRAMO_SOL_B). Mientras el jugador esta en ese tramo,
+#   el mapa de valores queda fijo y centrado en el (el tramo completo cabe en los 3.2 km del mapa).
 # Valores base reales (NASA, ver LEEME.md); la variacion de un lugar a otro es SINTETICA (salvo la presion por la altura).
-# Opciones de prueba (despues de --): --atm=polvo|radiacion|oxigeno|presion|temperatura
+# Opciones de prueba (despues de --): --atm-vista=calor|radiacion|oxigeno|presion|polvo  --atm-sonido
+#   --atm=polvo|radiacion|oxigeno|presion|temperatura (neblina)  --atm-tramo=A,B (otro tramo; --atm-tramo=no lo desactiva)
 #   --atm-sol=N (forzar el sol)  --atm-hora=H (hora local 0-24; por defecto sale del sol de la escena)
 #   --atm-panel-3d (ver el panel como en VR, sin visor)
-# En VR el panel flota pegado a la vista. Para botones del control llama a activar(POLVO/RAD/O2/PRES/TEMP) o alternar_panel()
-# (los botones aun no estan asignados).
+# En VR el panel flota pegado a la vista. Para botones del control: alternar_vista(VISTA_*), alternar_sonido(),
+# activar(POLVO/RAD/O2/PRES/TEMP) o alternar_panel() (los botones aun no estan asignados).
 
 const Modelo := preload("modelo.gd")
 const SHADER_NEBLINA := preload("neblina.gdshader")
+const SHADER_VISTA := preload("vista.gdshader")
 
 const POLVO := 0
 const RAD := 1
 const O2 := 2
 const PRES := 3
 const TEMP := 4
-const NOMBRES_PANEL := ["Polvo", "Radiación", "Oxígeno", "Presión", "Temperatura"]
 # tono claro, medio, oscuro (claro = poco/bueno, oscuro = mucho/malo)
 const RAMPAS := [
 	[Color("#ffd3e6"), Color("#c86bb0"), Color("#3d0b4a")],   # polvo: rosado -> morado
@@ -38,6 +45,37 @@ const RECENTRAR_M := 700.0
 const ANCHO_PANEL := 250
 const LETRA := 16
 const FILAS_PANEL := [O2, RAD, TEMP, PRES, POLVO]      # orden de las filas del panel
+# Posicion del panel. En pantalla: separacion del borde derecho y del borde de arriba, como fraccion de la ventana.
+const PANEL_MARGEN_X := 0.14
+const PANEL_MARGEN_Y := 0.18
+# En VR: centro horizontal y borde de arriba del panel (m, respecto a los ojos), distancia y giro hacia el ojo (rad).
+const PANEL_VR_X := 0.22
+const PANEL_VR_ARRIBA := 0.16
+const PANEL_VR_DIST := 0.95
+const PANEL_VR_GIRO := -0.22
+
+const VISTA_CALOR := 0
+const VISTA_RAD := 1
+const VISTA_O2 := 2
+const VISTA_PRES := 3
+const VISTA_POLVO := 4
+const VISTA_CANAL := [TEMP, RAD, O2, PRES, POLVO]       # que parametro muestra cada vista
+const VISTA_TECLA := ["P", "O", "K", "M", "N"]
+const ANCHO_MIN_VISTA := [0.15, 0.15, 0.15, 8.0, 0.0]  # por canal: ancho minimo de la escala (polvo/rad/O2 en 0..1, presion en Pa)
+const CIELO_VISTA := [0.02, 0.85, 0.05, 0.05, 0.35]    # por vista: valor del cielo (frio; de ahi vienen los rayos cosmicos; ...)
+
+# Tramo de la ruta del equipo (punto A y punto B de puntos de interes)
+const TRAMO_SOL_A := 1063
+const TRAMO_SOL_B := 1116
+const TRAMO_MARGEN_M := 700.0     # a menos de esto del tramo, el mapa queda fijo centrado en el tramo
+const CAMBIO_SOL_REGEN := 10.0    # el mapa se recalcula si el sol cambia en 10 o mas (los cambios por sol son minimos)
+
+# Sonido (J): oscilador con fase continua (NCO) + un poco de ruido blanco
+const AUDIO_HZ := 22050.0
+const F_MIN := 220.0              # Hz lejos de toda zona alta
+const OCTAVAS := 3.0              # dentro de la zona: F_MIN * 2^3 = 1760 Hz
+const RADIO_SONIDO_M := 600.0     # a esta distancia de una zona alta el tono empieza a subir
+const GLIDE_S := 0.08             # constante de tiempo del cambio de frecuencia (filtro de un polo)
 
 var world: WorldStreamer
 var core: Node
@@ -73,10 +111,36 @@ var sol_vec := Vector3(0.5, 0.57, 0.6).normalized()   # direccion hacia el sol (
 
 var neblina: MeshInstance3D
 var mat: ShaderMaterial
+var vista_q: MeshInstance3D      # cuadro de la vista de calor / radiacion
+var mat_vista: ShaderMaterial
+var vista := -1
+var temp_mediana := 215.0
+# por canal, el valor "orientado" (mas alto = mas de ese parametro: mas polvo, dosis, O2, presion, temperatura):
+# percentiles 5, 50, 90 y 95 en el mapa actual
+var pcts := [Vector4(0.2, 0.4, 0.55, 0.6), Vector4(0.2, 0.4, 0.55, 0.6), Vector4(0.2, 0.4, 0.55, 0.6),
+	Vector4(770, 780, 785, 790), Vector4(210, 215, 218, 220)]
+var campo_d1 := PackedFloat32Array()     # copias en arreglo del mapa (para el sonido)
+var campo_d2 := PackedFloat32Array()
+
+var tramo_ok := false
+var tramo_caja := Rect2()
+var tramo_a := TRAMO_SOL_A
+var tramo_b := TRAMO_SOL_B
+
+var sonido_on := false
+var reproductor: AudioStreamPlayer
+var audio_pb: AudioStreamGeneratorPlayback
+var fase := 0.0
+var f_obj := F_MIN
+var f_act := F_MIN
+var nivel_sonido := 0.0
+var _t_son := 0.0
+var _rng := RandomNumberGenerator.new()
 var remol: Array = []
 
 var ui: PanelContainer
-var valores_lbl := {}           # canal -> Label con el valor
+var valores_lbl := {}           # canal -> Label "Oxigeno: 0.16 %"
+var sonido_lbl: Label
 var canvas: CanvasLayer
 var vista_vr: SubViewport
 var panel_3d: MeshInstance3D
@@ -94,10 +158,19 @@ func setup(w: WorldStreamer, c: Node) -> void:
 	var args := OS.get_cmdline_user_args()
 	en_3d = bool(core.get("in_xr")) or "--atm-panel-3d" in args
 	_crear_neblina()
+	_crear_vista()
 	_crear_panel()
+	_crear_audio()
 	_leer_sol_escena()
 	for a in args:
-		if a.begins_with("--atm-sol="):
+		if a == "--atm-tramo=no":
+			tramo_a = -1
+		elif a.begins_with("--atm-tramo="):
+			var ab := a.get_slice("=", 1).split(",")
+			if ab.size() == 2:
+				tramo_a = int(ab[0])
+				tramo_b = int(ab[1])
+		elif a.begins_with("--atm-sol="):
 			sol_forzado = float(a.get_slice("=", 1))
 		elif a.begins_with("--atm-hora="):
 			hora = fposmod(float(a.get_slice("=", 1)), 24.0)
@@ -109,6 +182,34 @@ func setup(w: WorldStreamer, c: Node) -> void:
 			"--atm=oxigeno": activar(O2)
 			"--atm=presion": activar(PRES)
 			"--atm=temperatura": activar(TEMP)
+			"--atm-vista=calor": alternar_vista(VISTA_CALOR)
+			"--atm-vista=radiacion": alternar_vista(VISTA_RAD)
+			"--atm-vista=oxigeno": alternar_vista(VISTA_O2)
+			"--atm-vista=presion": alternar_vista(VISTA_PRES)
+			"--atm-vista=polvo": alternar_vista(VISTA_POLVO)
+			"--atm-sonido": alternar_sonido()
+	_preparar_tramo()
+
+
+# Caja (x, z) que cubre la ruta del sol A al final del sol B. Si cabe en el mapa, el mapa se fija ahi mientras el jugador esta cerca.
+func _preparar_tramo() -> void:
+	if tramo_a < 0:
+		return
+	var sa := world.route_s_of_sol(tramo_a)
+	var sb := world.route_s_of_sol(tramo_b + 1)
+	if sb <= sa:
+		return
+	var p0 := world.route_pos(sa)
+	tramo_caja = Rect2(p0, Vector2.ZERO)
+	var s := sa
+	while s < sb:
+		tramo_caja = tramo_caja.expand(world.route_pos(s))
+		s += CELDA
+	tramo_caja = tramo_caja.expand(world.route_pos(sb))
+	var cabe := maxf(tramo_caja.size.x, tramo_caja.size.y) + 2.0 * TRAMO_MARGEN_M <= N * CELDA - 2.0 * CELDA
+	tramo_ok = cabe
+	print("atmosfera: tramo sol %d -> %d, %.1f km de ruta, caja %.0f x %.0f m%s" % [tramo_a, tramo_b, (sb - sa) / 1000.0,
+		tramo_caja.size.x, tramo_caja.size.y, "" if cabe else " (no cabe en el mapa: se usa el mapa que sigue al jugador)"])
 
 
 # La escena tiene un sol fijo (DirectionalLight3D del nucleo; solo se lee, no se cambia).
@@ -139,6 +240,12 @@ func _unhandled_input(e: InputEvent) -> void:
 		KEY_F6: alternar_panel()
 		KEY_F7: activar(PRES)
 		KEY_F8: activar(TEMP)
+		KEY_P: alternar_vista(VISTA_CALOR)
+		KEY_O: alternar_vista(VISTA_RAD)
+		KEY_K: alternar_vista(VISTA_O2)
+		KEY_M: alternar_vista(VISTA_PRES)
+		KEY_N: alternar_vista(VISTA_POLVO)
+		KEY_J: alternar_sonido()
 		_: return
 	get_viewport().set_input_as_handled()
 
@@ -157,6 +264,29 @@ func activar(nuevo: int) -> void:
 		mat.set_shader_parameter("rango_suelo", rangos[modo])
 		_subir_rango_local()
 	_t_ui = 0.0
+
+
+# Vista de falso color a pantalla completa (solo una a la vez; la misma tecla la apaga).
+func alternar_vista(nueva: int) -> void:
+	vista = -1 if vista == nueva else nueva
+	vista_q.visible = vista >= 0
+	if vista >= 0:
+		mat_vista.set_shader_parameter("vista", vista)
+		_subir_vista()
+	_marcar_fila()
+	_t_son = 0.0
+
+
+func alternar_sonido() -> void:
+	sonido_on = not sonido_on
+	if sonido_on:
+		reproductor.play()
+		audio_pb = reproductor.get_stream_playback()
+		_t_son = 0.0
+	else:
+		reproductor.stop()
+		audio_pb = null
+	sonido_lbl.visible = sonido_on
 
 
 func alternar_panel() -> void:
@@ -185,9 +315,16 @@ func _process(delta: float) -> void:
 		_t_ui = 0.2
 		_valores(p)
 		_actualizar_panel()
+	if sonido_on:
+		_t_son -= delta
+		if _t_son <= 0.0:
+			_t_son = 0.25
+			nivel_sonido = _nivel_cercania(p)
+			f_obj = F_MIN * pow(2.0, OCTAVAS * nivel_sonido)
+		_llenar_audio()
 	if canvas and ver_panel:
 		var vs := get_viewport().get_visible_rect().size
-		ui.position = Vector2(vs.x - ui.size.x - 12.0, 64.0)      # lateral derecho
+		ui.position = Vector2(vs.x * (1.0 - PANEL_MARGEN_X) - ui.size.x, vs.y * PANEL_MARGEN_Y)   # lateral derecho
 
 
 func _sol(p: Vector3) -> float:
@@ -221,10 +358,13 @@ func _valores(p: Vector3) -> void:
 
 func _generar_campo(p: Vector3) -> void:
 	if gen_fila < 0:
+		var p2 := Vector2(p.x, p.z)
+		var fijo := tramo_ok and tramo_caja.grow(TRAMO_MARGEN_M).has_point(p2)
+		var objetivo := tramo_caja.get_center() if fijo else p2
 		var centro := campo_origen + Vector2.ONE * (N * CELDA * 0.5)
-		var lejos := centro.distance_to(Vector2(p.x, p.z)) > RECENTRAR_M
-		if lejos or absf(sol_actual - campo_sol) >= 1.0:
-			gen_origen = (Vector2(p.x, p.z) - Vector2.ONE * (N * CELDA * 0.5)).snapped(Vector2(CELDA, CELDA))
+		var mover := centro.distance_to(objetivo) > (CELDA if fijo else RECENTRAR_M)
+		if mover or absf(sol_actual - campo_sol) >= CAMBIO_SOL_REGEN:
+			gen_origen = (objetivo - Vector2.ONE * (N * CELDA * 0.5)).snapped(Vector2(CELDA, CELDA))
 			gen_sol = sol_actual
 			gen_img = Image.create_empty(N, N, false, Image.FORMAT_RGBAF)
 			gen2_img = Image.create_empty(N, N, false, Image.FORMAT_RGF)
@@ -267,6 +407,8 @@ func _generar_campo(p: Vector3) -> void:
 				campo2_tex = ImageTexture.create_from_image(campo2_img)
 				mat.set_shader_parameter("campo", campo_tex)
 				mat.set_shader_parameter("campo2", campo2_tex)
+				mat_vista.set_shader_parameter("campo", campo_tex)
+				mat_vista.set_shader_parameter("campo2", campo2_tex)
 			else:
 				campo_tex.update(campo_img)
 				campo2_tex.update(campo2_img)
@@ -276,6 +418,7 @@ func _generar_campo(p: Vector3) -> void:
 			if modo >= 0:
 				mat.set_shader_parameter("rango_suelo", rangos[modo])
 			_subir_rango_local()
+			_subir_vista()
 
 
 const MUESTRA := 7              # para los percentiles basta con 1 de cada 7 casillas (~3600 por canal)
@@ -286,18 +429,27 @@ const MUESTRA := 7              # para los percentiles basta con 1 de cada 7 cas
 func _calcular_rangos() -> void:
 	var d1 := campo_img.get_data().to_float32_array()       # RGBA por casilla
 	var d2 := campo2_img.get_data().to_float32_array()      # RG por casilla
+	campo_d1 = d1
+	campo_d2 = d2
 	var n := (N * N + MUESTRA - 1) / MUESTRA
 	var crudos: Array = []
 	for c in 5:
 		var a := PackedFloat32Array()
 		a.resize(n)
+		var o := PackedFloat32Array()
+		o.resize(n)
 		for s in n:
 			var k := s * MUESTRA
 			a[s] = d1[k * 4 + c] if c < 3 else d2[k * 2 + c - 3]
+			o[s] = _orientado(c, k)
 		a.sort()
+		o.sort()
 		crudos.append(a)
+		pcts[c] = Vector4(o[n * 5 / 100], o[n / 2], o[n * 90 / 100], o[n * 95 / 100])
 	rango_pres = _escala_local(crudos[PRES], Modelo.PRES_MEDIO_RANGO)   # (claro = mas, oscuro = menos)
 	rango_temp = _escala_local(crudos[TEMP], Modelo.TEMP_MEDIO_RANGO)
+	var at: PackedFloat32Array = crudos[TEMP]
+	temp_mediana = at[n / 2]
 	for c in 5:
 		var a: PackedFloat32Array = crudos[c]
 		var lo := a[n / 2]
@@ -325,6 +477,16 @@ func _subir_rango_local() -> void:
 	mat.set_shader_parameter("rango_local", rango_pres if modo == PRES else rango_temp)
 
 
+# Valor de la casilla k "orientado": mas alto = mas de ese parametro (O2 se guarda como falta, por eso 1 - valor).
+func _orientado(c: int, k: int) -> float:
+	match c:
+		POLVO: return campo_d1[k * 4]
+		RAD: return campo_d1[k * 4 + 1]
+		O2: return 1.0 - campo_d1[k * 4 + 2]
+		PRES: return campo_d2[k * 2]
+	return campo_d2[k * 2 + 1]
+
+
 func _hg(i: int, j: int) -> float:
 	return gen_h[clampi(j, 0, N - 1) * N + clampi(i, 0, N - 1)]
 
@@ -348,6 +510,53 @@ func _crear_neblina() -> void:
 	core.cam.add_child(neblina)
 
 
+func _crear_vista() -> void:
+	mat_vista = ShaderMaterial.new()
+	mat_vista.shader = SHADER_VISTA
+	mat_vista.render_priority = 15                  # despues de la neblina: la reemplaza mientras la vista esta activa
+	var q := QuadMesh.new()
+	q.size = Vector2(2, 2)
+	vista_q = MeshInstance3D.new()
+	vista_q.name = "VistaAtmosfera"
+	vista_q.mesh = q
+	vista_q.material_override = mat_vista
+	vista_q.extra_cull_margin = 16384.0
+	vista_q.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	vista_q.position = Vector3(0, 0, -1)
+	vista_q.visible = false
+	core.cam.add_child(vista_q)
+
+
+# Escalas de color de las vistas (como una camara termica con ganancia automatica):
+#   calor: centrada en la temperatura del suelo plano a esta hora, +-14 K
+#   las demas: del 5 % al 95 % del mapa alrededor (con un ancho minimo para no exagerar diferencias pequenias)
+func _subir_vista() -> void:
+	if mat_vista == null:
+		return
+	var d := m.factor_dia(hora)
+	mat_vista.set_shader_parameter("campo_origen", campo_origen)
+	mat_vista.set_shader_parameter("campo_tam", N * CELDA)
+	mat_vista.set_shader_parameter("sol_vec", sol_vec)
+	mat_vista.set_shader_parameter("dia", d)
+	mat_vista.set_shader_parameter("temp_aire", temp_mediana)
+	# centro de la escala = suelo plano a esta hora (aire + lo que calienta el sol); +-14 K alrededor
+	var plano := temp_mediana + 35.0 * d * maxf(sol_vec.y, 0.0) - 8.0 * (1.0 - d)
+	mat_vista.set_shader_parameter("escala_calor", Vector2(plano - 14.0, plano + 14.0))
+	if vista > VISTA_CALOR:
+		var c: int = VISTA_CANAL[vista]
+		var pc: Vector4 = pcts[c]
+		var lo := pc.x
+		var hi := pc.w
+		var minimo: float = ANCHO_MIN_VISTA[c]
+		if hi - lo < minimo:
+			lo = pc.y - minimo * 0.5
+			hi = pc.y + minimo * 0.5
+		var margen := (hi - lo) * 0.1
+		mat_vista.set_shader_parameter("escala", Vector2(lo - margen, hi + margen))
+		mat_vista.set_shader_parameter("mediana", pc.y)
+		mat_vista.set_shader_parameter("cielo_t", CIELO_VISTA[vista])
+
+
 func _subir_remolinos() -> void:
 	var arr := PackedVector4Array()
 	for r in remol:
@@ -356,6 +565,60 @@ func _subir_remolinos() -> void:
 	while arr.size() < 16:
 		arr.append(Vector4.ZERO)
 	mat.set_shader_parameter("remolinos", arr)
+	mat_vista.set_shader_parameter("n_remolinos", remol.size())
+	mat_vista.set_shader_parameter("remolinos", arr)
+
+
+# ---------------------------------------------------------------- sonido (J)
+
+func _crear_audio() -> void:
+	var g := AudioStreamGenerator.new()
+	g.mix_rate = AUDIO_HZ
+	g.buffer_length = 0.12
+	reproductor = AudioStreamPlayer.new()
+	reproductor.name = "SonidoAtmosfera"
+	reproductor.stream = g
+	reproductor.volume_db = -10.0
+	add_child(reproductor)
+
+
+# 0 = lejos (o fuera del mapa) .. 1 = dentro de una zona alta. "Zona alta" = casillas sobre el percentil 90 del mapa.
+# Canal: el de la vista activa; sin vista, el mas cercano de los cinco.
+func _nivel_cercania(p: Vector3) -> float:
+	if campo_d1.is_empty():
+		return 0.0
+	var ci := int((p.x - campo_origen.x) / CELDA)
+	var cj := int((p.z - campo_origen.y) / CELDA)
+	if ci < 0 or cj < 0 or ci >= N or cj >= N:
+		return 0.0
+	var canales: Array = [VISTA_CANAL[vista]] if vista >= 0 else [POLVO, RAD, O2, PRES, TEMP]
+	var r := int(RADIO_SONIDO_M / CELDA)
+	var mejor := 0.0
+	for c in canales:
+		var umbral: float = pcts[c].z
+		var d2min := INF
+		for j in range(maxi(cj - r, 0), mini(cj + r + 1, N), 2):           # una de cada 2 casillas: 40 m
+			for i in range(maxi(ci - r, 0), mini(ci + r + 1, N), 2):
+				if _orientado(c, j * N + i) >= umbral:
+					d2min = minf(d2min, float((i - ci) * (i - ci) + (j - cj) * (j - cj)))
+		if _orientado(c, cj * N + ci) >= umbral:
+			d2min = 0.0
+		if d2min < INF:
+			mejor = maxf(mejor, 1.0 - clampf(sqrt(d2min) * CELDA / RADIO_SONIDO_M, 0.0, 1.0))
+	return mejor
+
+
+# Oscilador: la fase avanza 2*pi*f/fs por muestra (NCO). La frecuencia sigue a f_obj con un filtro de un polo
+# (y[n] = y[n-1] + a (x[n] - y[n-1]), polo en z = 1 - a) para que el tono se deslice sin saltos.
+func _llenar_audio() -> void:
+	if audio_pb == null:
+		return
+	var a := 1.0 - exp(-1.0 / (AUDIO_HZ * GLIDE_S))
+	for k in audio_pb.get_frames_available():
+		f_act += a * (f_obj - f_act)
+		fase = fmod(fase + TAU * f_act / AUDIO_HZ, TAU)
+		var muestra := 0.22 * sin(fase) + 0.03 * (_rng.randf() * 2.0 - 1.0)
+		audio_pb.push_frame(Vector2(muestra, muestra))
 
 
 # ---------------------------------------------------------------- panel
@@ -368,25 +631,16 @@ func _crear_panel() -> void:
 	sb.set_content_margin_all(10)
 	ui.add_theme_stylebox_override("panel", sb)
 	ui.custom_minimum_size = Vector2(ANCHO_PANEL, 0)
-	var g := GridContainer.new()
-	g.columns = 3
-	g.add_theme_constant_override("h_separation", 8)
-	g.add_theme_constant_override("v_separation", 6)
-	ui.add_child(g)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 6)
+	ui.add_child(vb)
 	for canal in FILAS_PANEL:
-		var muestra := ColorRect.new()                  # el color de la neblina de ese parametro
-		muestra.color = RAMPAS[canal][1]
-		muestra.custom_minimum_size = Vector2(LETRA, LETRA)
-		muestra.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		g.add_child(muestra)
-		var nombre := _label()
-		nombre.text = NOMBRES_PANEL[canal]
-		nombre.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		g.add_child(nombre)
-		var valor := _label()
-		valor.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		g.add_child(valor)
-		valores_lbl[canal] = valor
+		var fila := _label()                            # "Oxigeno: 0.16 %"
+		vb.add_child(fila)
+		valores_lbl[canal] = fila
+	sonido_lbl = _label()
+	sonido_lbl.visible = false
+	vb.add_child(sonido_lbl)
 	if en_3d:
 		vista_vr = SubViewport.new()
 		vista_vr.transparent_bg = true
@@ -408,13 +662,20 @@ func _crear_panel() -> void:
 		panel_3d.material_override = pm
 		panel_3d.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		panel_3d.extra_cull_margin = 10.0
-		panel_3d.rotation = Vector3(0, -0.42, 0)       # mirando hacia el ojo
+		panel_3d.rotation = Vector3(0, PANEL_VR_GIRO, 0)       # mirando hacia el ojo
 		core.cam.add_child(panel_3d)
 	else:
 		canvas = CanvasLayer.new()
 		canvas.layer = 5
 		add_child(canvas)
 		canvas.add_child(ui)
+
+
+func _marcar_fila() -> void:
+	var activo: int = VISTA_CANAL[vista] if vista >= 0 else -1
+	for c in FILAS_PANEL:
+		valores_lbl[c].add_theme_color_override("font_color", COLOR_ACTIVO if c == activo else COLOR_TEXTO)
+	_t_ui = 0.0
 
 
 func _label() -> Label:
@@ -436,17 +697,27 @@ func _ajustar_panel_3d() -> void:
 		ui.size = Vector2(ancho, alto)
 	var k := 0.001
 	(panel_3d.mesh as QuadMesh).size = Vector2(ancho * k, alto * k)
-	panel_3d.position = Vector3(0.40, 0.32 - alto * k * 0.5, -0.95)
+	panel_3d.position = Vector3(PANEL_VR_X, PANEL_VR_ARRIBA - alto * k * 0.5, -PANEL_VR_DIST)
 
 
-# Solo el valor de cada parametro en la posicion del jugador.
+const COLOR_TEXTO := Color(0.95, 0.95, 0.92)
+const COLOR_ACTIVO := Color(1.0, 0.83, 0.47)
+
+# Solo el valor de cada parametro en la posicion del jugador. La fila de la vista activa va resaltada.
 func _actualizar_panel() -> void:
 	if not ver_panel or v.is_empty():
 		return
-	valores_lbl[O2].text = "%.2f %%" % [float(v["fo2"]) * 100.0]
-	valores_lbl[RAD].text = "%.2f mSv/día" % float(v["rad"])
-	valores_lbl[TEMP].text = "%.0f °C" % [float(v["temp"]) - 273.15]
-	valores_lbl[PRES].text = "%.0f Pa" % float(v["presion"])
-	valores_lbl[POLVO].text = "τ %.2f" % float(v["tau"])
+	var textos := {
+		O2: "Oxígeno: %.2f %%" % [float(v["fo2"]) * 100.0],
+		RAD: "Radiación: %.2f mSv/día" % float(v["rad"]),
+		TEMP: "Temperatura: %.0f °C" % [float(v["temp"]) - 273.15],
+		PRES: "Presión: %.0f Pa" % float(v["presion"]),
+		POLVO: "Polvo: τ %.2f" % float(v["tau"]),
+	}
+	var activo: int = VISTA_CANAL[vista] if vista >= 0 else -1
+	for c in FILAS_PANEL:
+		valores_lbl[c].text = ("▶ " if c == activo else "") + textos[c]
+	if sonido_on:
+		sonido_lbl.text = "Sonido: %.0f Hz" % f_obj
 	if en_3d:
 		_ajustar_panel_3d.call_deferred()
