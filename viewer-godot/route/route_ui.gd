@@ -25,6 +25,8 @@ signal route_failed(message: String)
 const R_MARS := 3396190.0                 # igual que route-planner/geo.py
 const EMIT_EVERY := 0.5                   # s entre player_position_changed
 
+var menu_open := false                    # true mientras el menu VR esta abierto
+var vr_menu: Node3D
 var typing := false                       # true mientras hay un diálogo abierto (main.gd deja de mover al jugador)
 var core: Node                            # main.gd: origin (XROrigin3D), cam, hud
 var guide: Node                           # GuidePath
@@ -75,6 +77,11 @@ func setup(core_node: Node, guide_node: Node, scene_res_dir: String, scene: Dict
 		lat0 = float(o["lat"])
 		has_geo = true
 	_init_common()
+	if core.get("left") != null and core.left != null:
+		vr_menu = load("res://route/vr_menu.gd").new()
+		vr_menu.name = "VRMenu"
+		core.add_child(vr_menu)
+		vr_menu.setup(self, core)
 
 
 func setup_world(core_node: Node, guide_node: Node, world: Node) -> void:
@@ -489,5 +496,5 @@ func hud_lines(player_pos: Vector3) -> String:
 	s += guide.hud_line()
 	if status != "" and (Time.get_ticks_msec() / 1000.0 < status_until or _busy_pid > 0):
 		s += "\n" + status
-	s += "\nL: destino lat/lon · P: puntos guardados · R: recalcular · C: borrar ruta"
+	s += "\nL: destino lat/lon · P: puntos guardados · R: recalcular · C: borrar ruta · VR: agarre izq = menu"
 	return s
