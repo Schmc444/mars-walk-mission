@@ -7,6 +7,8 @@ var world: WorldStreamer
 var core: Node
 var rover: Node3D
 var rover_s := 0.0
+var rover_full := false
+var rover_full_hq := "--rover=hq" in OS.get_cmdline_user_args()
 
 const MAX_V := 100.0 / 3.6       # 100 km/h en m/s
 const MAX_ANG := deg_to_rad(60.0)
@@ -85,6 +87,10 @@ func _place() -> void:
 
 
 func _load_rover() -> Node3D:
+	var args := OS.get_cmdline_user_args()
+	if not ("--rover=full" in args or "--rover=hq" in args):
+		return _box_rover()
+	rover_full = true
 	var doc := GLTFDocument.new()
 	var st := GLTFState.new()
 	if doc.append_from_buffer(FileAccess.get_file_as_bytes(ROVER_MODEL), "", st) != OK:
@@ -95,13 +101,48 @@ func _load_rover() -> Node3D:
 	holder.name = "Perseverance"
 	holder.add_child(scene)
 	add_child(holder)
-	_simplify(scene as Node3D)
+	if not rover_full_hq:
+		_simplify(scene as Node3D)
 	var acc: Array = [null]
 	_aabb(holder, holder, acc)
 	var bb: AABB = acc[0]
 	scene.basis = Basis(Vector3.UP, PI)   # el modelo mira hacia +z; el rover avanza hacia -z
 	scene.position = Vector3(bb.position.x + bb.size.x / 2.0, -bb.position.y, bb.position.z + bb.size.z / 2.0)
 	return holder
+
+
+func _box_rover() -> Node3D:
+	var holder := Node3D.new()
+	holder.name = "PerseveranceBox"
+	add_child(holder)
+	var body := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(2.7, 0.9, 3.1)
+	body.mesh = bm
+	body.position.y = 0.55
+	body.material_override = _mat_plain(Color(0.85, 0.85, 0.85))
+	holder.add_child(body)
+	var mast := MeshInstance3D.new()
+	var mm := BoxMesh.new()
+	mm.size = Vector3(0.15, 0.9, 0.15)
+	mast.mesh = mm
+	mast.position = Vector3(0.8, 1.45, -1.1)
+	mast.material_override = _mat_plain(Color(0.3, 0.3, 0.3))
+	holder.add_child(mast)
+	var nose := MeshInstance3D.new()
+	var nm := BoxMesh.new()
+	nm.size = Vector3(1.0, 0.3, 0.3)
+	nose.mesh = nm
+	nose.position = Vector3(0, 0.7, -1.6)
+	nose.material_override = _mat_plain(Color(0.9, 0.3, 0.1))
+	holder.add_child(nose)
+	return holder
+
+
+func _mat_plain(c: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = c
+	return m
 
 
 func _aabb(n: Node, root: Node3D, acc: Array) -> void:
