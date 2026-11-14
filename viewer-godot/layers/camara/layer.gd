@@ -67,6 +67,8 @@ func setup(w: WorldStreamer, c: Node) -> void:
 		reticle.visible = false
 		print("camara: reproduciendo ", play_data.size(), " muestras")
 	RenderingServer.frame_pre_draw.connect(_late)
+	if core.right != null:
+		core.right.button_pressed.connect(func(n: String): if n == "trigger_click": _rec_toggle())
 
 
 func _unhandled_input(e: InputEvent) -> void:
@@ -246,6 +248,8 @@ func _exit_tree() -> void:
 
 func _rec_toggle() -> void:
 	rec_on = not rec_on
+	reticle.material_override.albedo_color = Color(1, 0.15, 0.15) if rec_on else Color(0.4, 1.0, 0.4)
+	ray.material_override.albedo_color = reticle.material_override.albedo_color
 	if rec_on:
 		rec_data = []
 		rec_t0 = Time.get_ticks_msec()
