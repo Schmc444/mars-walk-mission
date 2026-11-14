@@ -661,7 +661,6 @@ func _setup_player() -> void:
 			_toggle_ride()
 		elif name == "ax_button":
 			_toggle_hazard())
-	left.button_pressed.connect(func(name: String): if name == "by_button" or name == "ax_button": _toggle_hazard())
 
 
 func _setup_xr() -> void:

@@ -77,11 +77,6 @@ func setup(core_node: Node, guide_node: Node, scene_res_dir: String, scene: Dict
 		lat0 = float(o["lat"])
 		has_geo = true
 	_init_common()
-	if core.get("left") != null and core.left != null:
-		vr_menu = load("res://route/vr_menu.gd").new()
-		vr_menu.name = "VRMenu"
-		core.add_child(vr_menu)
-		vr_menu.setup(self, core)
 
 
 func setup_world(core_node: Node, guide_node: Node, world: Node) -> void:
@@ -96,6 +91,11 @@ func setup_world(core_node: Node, guide_node: Node, world: Node) -> void:
 	scene_dir = world.dir.trim_suffix("/")
 	has_geo = true
 	_init_common()
+	if core.get("left") != null and core.left != null:
+		vr_menu = load("res://route/vr_menu.gd").new()
+		vr_menu.name = "VRMenu"
+		core.add_child(vr_menu)
+		vr_menu.setup(self, core)
 
 
 func _init_common() -> void:
