@@ -23,7 +23,7 @@ from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # para importar los módulos hermanos desde cualquier carpeta
 import route_config as cfg                  # supuestos (factores, pesos, 15°/25°): un solo lugar
 import terrain_classes as tc                # códigos y fuentes de clase de terreno
-import geo, waypoints
+import geo, waypoints, world_grid
 
 log = logging.getLogger("mars_route")
 
@@ -319,7 +319,7 @@ def export(g, nodes, spacing=1.0):
         terrain_source=dict(source=info.get("source"), is_proxy=info.get("is_proxy"), warning=info.get("warning")),
         points=out_pts, eta_s=eta, slope_deg=slope, terrain=terr, warnings=warn)
     try:   # lon/lat de cada punto, solo si la escena tiene georreferencia
-        ref = geo.GeoRef.from_scene(g["scene"])
+        ref = geo.georef_of(g)
         res["lonlat"] = [[round(v, 7) for v in ref.local_to_lonlat(p[0], p[2])] for p in out_pts]
     except geo.GeoError:
         pass
@@ -362,6 +362,10 @@ def preview_classes(g, results, out_png, scale=None):
     from PIL import ImageDraw
     scale = scale or max(1, 720 // max(g["h"].shape))
     im = tc.class_image(g["cls"], scale).convert("RGB")
+    if g.get("nodata") is not None and g["nodata"].any():     # sin datos: gris oscuro (no se confunde con "regolito")
+        arr = np.asarray(im).copy()
+        arr[np.kron(g["nodata"], np.ones((scale, scale), bool))] = (25, 25, 30)
+        im = Image.fromarray(arr)
     _draw_routes(g, im, results, scale)
     leg = Image.new("RGB", (im.width, 22), (20, 20, 24))
     d = ImageDraw.Draw(leg)
@@ -411,6 +415,13 @@ class RouteResult:
 def load_layers(folder, layer="terrain", sun=(135.0, 35.0), terrain_source=None, waypoints_path=None):
     """Carga y deriva las capas (pendiente, rugosidad, sombra, clase de terreno) UNA vez; reutilizar entre llamadas a plan_route."""
     t0 = time.perf_counter()
+    if os.path.exists(os.path.join(folder, "world.json")):      # escena "world" (tiles): el grid se ensambla por petición
+        if terrain_source not in (None, "proxy"):
+            raise ValueError("terrain_map todavia no esta soportado en world (solo proxy)")
+        w = world_grid.World(folder)
+        log.info("world: %d tiles, x %.0f..%.0f m, z %.0f..%.0f m", len(w.tiles), w.xmin, w.xmax, w.zmin, w.zmax)
+        return dict(kind="world", world=w, georef=w.georef, folder=folder, layer="world", sun=sun, waypoints_path=waypoints_path,
+                    cost_cache={}, crops={})
     g = derive(load_grid(folder, layer), sun[0], sun[1], terrain_source)
     g.update(folder=folder, layer=layer, waypoints_path=waypoints_path, cost_cache={})
     info = g["terrain_info"]
@@ -429,13 +440,13 @@ def _resolve_point(layers, spec, what):
     try:
         if "waypoint" in spec:
             lat, lon, name = waypoints.resolve(spec["waypoint"], layers.get("waypoints_path"))
-            x, z = geo.GeoRef.from_scene(layers["scene"]).lonlat_to_local(lon, lat)
+            x, z = geo.georef_of(layers).lonlat_to_local(lon, lat)
             return x, z, []
         if "lat" in spec and "lon" in spec:
             lat, lon = float(spec["lat"]), float(spec["lon"])
             if not (-90 <= lat <= 90 and -360 <= lon <= 360):
                 raise PlanError("punto_invalido", "%s: lat/lon fuera de rango" % what)
-            x, z = geo.GeoRef.from_scene(layers["scene"]).lonlat_to_local(lon, lat)
+            x, z = geo.georef_of(layers).lonlat_to_local(lon, lat)
             return x, z, []
         if "x" in spec and "z" in spec:
             return float(spec["x"]), float(spec["z"]), []
@@ -452,12 +463,37 @@ HIER_MIN_CELLS = 200_000    # por encima de esto (el anillo de 3 km tiene 1 000 
 HIER_FACTOR, HIER_WIDTH = 4, 3
 
 
-def plan_route(layers, start, goal, condition="normal", risk_weight=None, hierarchical="auto", snap_m=5.0):
+def world_crop(layers, pts, lod=None, margin=None):
+    """Capas (recorte ya derivado: pendiente, rugosidad, sombra, clase de terreno) para el rectángulo de `pts` en una escena world.
+
+    Se reutilizan entre peticiones si el rectángulo (alineado a 100 m) y el LOD son los mismos; guarda las 3 últimas.
+    """
+    w = layers["world"]
+    try:
+        box = world_grid.crop_box(w, pts, margin, lod)
+    except geo.GeoError as e:
+        raise PlanError(e.code, str(e))
+    if box not in layers["crops"]:
+        try:
+            g = world_grid.build_crop(w, *box)
+        except geo.GeoError as e:
+            raise PlanError(e.code, str(e))
+        g = derive(g, layers["sun"][0], layers["sun"][1], None)
+        g.update(folder=layers["folder"], layer="world:" + g["lod"], waypoints_path=layers.get("waypoints_path"), cost_cache={})
+        if len(layers["crops"]) >= 3:
+            layers["crops"].pop(next(iter(layers["crops"])))
+        layers["crops"][box] = g
+        log.info("world: recorte %dx%d celdas de %.0f m (%s), fuente de terreno %s", g["h"].shape[1], g["h"].shape[0], g["step"], g["lod"], g["terrain_info"]["source"])
+    return layers["crops"][box]
+
+
+def plan_route(layers, start, goal, condition="normal", risk_weight=None, hierarchical="auto", snap_m=5.0, lod=None):
     """Planifica una ruta desde `start` a `goal` con capas ya cargadas (`load_layers`). Sin estado global; apta para llamar en cualquier momento.
 
     start/goal: (x, z) en metros locales, o {"x","z"}, {"lat","lon"}, {"waypoint": id}.
     risk_weight: peso de riesgo (None = cfg.DEFAULT_RISK; 0 = tiempo puro).
     hierarchical: "auto" | "on" | "off". snap_m: radio para mover un punto intransitable a la celda transitable más cercana (0 = estricto).
+    lod: solo escenas world: fuerza el paso del terreno (1, 5 o 20 m); None = elegir según el tamaño del recorte.
     Devuelve RouteResult (nunca lanza por errores de usuario: ok=False con error_code).
     """
     t_all = time.perf_counter()
@@ -468,6 +504,17 @@ def plan_route(layers, start, goal, condition="normal", risk_weight=None, hierar
         risk = cfg.DEFAULT_RISK if risk_weight is None else float(risk_weight)
         if risk < 0:
             raise PlanError("riesgo_invalido", "risk_weight debe ser >= 0")
+        raw = []
+        for what, spec in (("inicio", start), ("meta", goal)):
+            x, z, w = _resolve_point(layers, spec, what)
+            warns += w
+            raw.append((x, z))
+        if layers.get("kind") == "world":
+            t0 = time.perf_counter()
+            layers = world_crop(layers, raw, lod)
+            tm["recorte_ms"] = (time.perf_counter() - t0) * 1000
+            for k, frac in layers["partial_nodata"]:
+                warns.append("el tile %d_%d tiene %.0f %% de alturas rellenadas (nodata parcial)" % (k[0], k[1], 100 * frac))
         t0 = time.perf_counter()
         key = (condition, round(risk, 6))
         cache = layers.setdefault("cost_cache", {})
@@ -478,15 +525,13 @@ def plan_route(layers, start, goal, condition="normal", risk_weight=None, hierar
         g = cache[key]
         tm["costos_ms"] = (time.perf_counter() - t0) * 1000
         pts = []
-        for what, spec in (("inicio", start), ("meta", goal)):
-            x, z, w = _resolve_point(layers, spec, what)
+        for what, (x, z) in zip(("inicio", "meta"), raw):
             try:
                 x, z, aviso = geo.validate_point(g, x, z, snap_m, what)
             except geo.GeoError as e:
                 raise PlanError(e.code, str(e))
             if aviso:
-                w.append(aviso)
-            warns += w
+                warns.append(aviso)
             pts.append(to_rc(g, x, z))
         s, t = pts
         use_h = hierarchical == "on" or (hierarchical == "auto" and g["h"].size > HIER_MIN_CELLS)
@@ -530,7 +575,7 @@ def run_request(req, layers_cache=None):
         if ck not in cache:
             cache[ck] = load_layers(folder, layer, tuple(req.get("sun", (135.0, 35.0))), req.get("terrain_map"), req.get("waypoints"))
         res = plan_route(cache[ck], req.get("start", {"x": 0, "z": 0}), req["goal"], req.get("condition", "normal"),
-                         req.get("risk_weight"), req.get("hierarchical", "auto"), float(req.get("snap_m", 5.0)))
+                         req.get("risk_weight"), req.get("hierarchical", "auto"), float(req.get("snap_m", 5.0)), req.get("lod"))
         return res.to_json()
     except (KeyError, FileNotFoundError, ValueError, StopIteration) as e:
         code = "peticion_invalida" if isinstance(e, KeyError) else "escena_invalida"
@@ -569,6 +614,9 @@ def main():
     ap.add_argument("--png", default=None, help="preview image")
     ap.add_argument("--png-clases", default=None, help="imagen solo con la matriz de clases de terreno (+ ruta) para revisar el clasificador")
     ap.add_argument("--export-terrain", default=None, metavar="PREFIJO", help="escribe PREFIJO.u8/.json con la matriz de clases (para el HUD de Godot)")
+    ap.add_argument("--lod", type=int, default=None, choices=[1, 5, 20], help="solo world: fuerza el paso del terreno en m (default: segun el tamano del recorte)")
+    ap.add_argument("--around", type=float, nargs=2, default=None, metavar=("X", "Z"), help="solo world, con --export-terrain: centro de la ventana")
+    ap.add_argument("--radius", type=float, default=200.0, help="solo world, con --export-terrain: radio de la ventana en m (default 200)")
     ap.add_argument("--request", default=None, help="modo contrato: JSON de petición (ver README); escribe --result")
     ap.add_argument("--result", default=None, help="con --request: archivo de salida (default stdout)")
     a = ap.parse_args()
@@ -583,6 +631,13 @@ def main():
 
     layers = load_layers(a.scene, a.layer, tuple(a.sun), a.terrain_map, a.waypoints)
     if a.export_terrain:
+        if layers.get("kind") == "world":      # el HUD de terreno usa una ventana t1 alrededor del jugador
+            if not a.around:
+                ap.error("en world, --export-terrain necesita --around X Z")
+            try:
+                layers = world_crop(layers, [tuple(a.around)], 1, a.radius)
+            except PlanError as e:
+                raise SystemExit("error [%s]: %s" % (e.code, e))
         print("->", export_terrain(layers, a.export_terrain))
         if not (a.goal or a.goal_latlon or a.waypoint):
             return
@@ -595,7 +650,7 @@ def main():
     conds = list(cfg.CONDITIONS) if a.cond == "all" else [a.cond]
     results, g = {}, None
     for c in conds:
-        r = plan_route(layers, start, goal, c, a.riesgo, a.hier, strict)
+        r = plan_route(layers, start, goal, c, a.riesgo, a.hier, strict, a.lod)
         if not r.ok:
             raise SystemExit("error [%s]: %s" % (r.error_code, r.error))
         for w in r.warnings:

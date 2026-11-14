@@ -59,7 +59,8 @@ class ProxySource:
         cls = np.full(rough.shape, REGOLITO, "i4")
         if g["img"] is not None:
             b = g["img"]
-            lo, hi = np.percentile(b, [p["dark_pct"], p["bright_pct"]])
+            nd = g.get("nodata")
+            lo, hi = np.percentile(b if nd is None else b[~nd], [p["dark_pct"], p["bright_pct"]])   # solo celdas con datos
             cls[(b > hi) & (rough < p["rough_bright"])] = ROCA_FIRME   # brillante y liso -> roca expuesta
             cls[(b < lo) & (rough < p["rough_dark"])] = ARENA_DUNA     # oscuro y liso -> arena / duna
         cls[rough > p["rough_blocks"]] = BLOQUES                       # rugoso -> bloques

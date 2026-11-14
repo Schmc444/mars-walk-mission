@@ -93,3 +93,34 @@ def validate_point(g, x, z, snap_m=5.0, what="punto"):
         raise GeoError("%s intransitable (pendiente >= limite o sin datos) y sin celda transitable a menos de %.0f m" % (what, snap_m), "intransitable")
     nx, nz = g["step"] * best[2] + g["x0"], g["step"] * best[1] + g["z0"]
     return nx, nz, "%s sobre celda intransitable; se uso la transitable mas cercana (%.1f m): x=%.1f, z=%.1f" % (what, best[0], nx, nz)
+
+
+class WorldGeo:
+    """lat/lon <-> metros del frame del world (x este, z sur, origen = primer vértice de la ruta del rover).
+
+    Réplica EXACTA de `WorldStreamer.lonlat_to_world / world_to_lonlat` (viewer-godot/world.gd), sobre `world.json`:
+        px = R·rad(lon) - mosaic_x0 - origin.px[0]      x = px·spacing_x
+        py = mosaic_y0 - R·rad(lat) - origin.px[1]      z = py·spacing_z
+    (`origin.lat0` de world.json NO interviene: solo lo usó la construcción para elegir spacing_x = cos(lat0).)
+    """
+    def __init__(self, w):
+        o = w["origin"]
+        self.R = float(w.get("body", {}).get("radius_m", R))
+        self.x0, self.y0 = float(o["mosaic_x0"]), float(o["mosaic_y0"])
+        self.opx, self.opy = float(o["px"][0]), float(o["px"][1])
+        self.sx, self.sz = float(w["spacing_x"]), float(w["spacing_z"])
+
+    def lonlat_to_local(self, lon, lat):
+        px = (self.R * math.radians(float(lon)) - self.x0) - self.opx
+        py = (self.y0 - self.R * math.radians(float(lat))) - self.opy
+        return px * self.sx, py * self.sz
+
+    def local_to_lonlat(self, x, z):
+        X = (x / self.sx + self.opx) + self.x0
+        Y = self.y0 - (z / self.sz + self.opy)
+        return math.degrees(X / self.R), math.degrees(Y / self.R)
+
+
+def georef_of(layers):
+    """GeoRef de unas capas ya cargadas: `layers['georef']` (world) o el de `scene.json`."""
+    return layers.get("georef") or GeoRef.from_scene(layers["scene"])
