@@ -65,6 +65,7 @@ func ring_gain_at_patch() -> Dictionary:
 
 var W: WorldStreamer
 var world_mode := false
+const DEFAULT_START_SOL := 1063
 var ride_s := 0.0
 var riding := true
 var world_speed := 0.0
@@ -124,7 +125,8 @@ func _ready_world(dir: String) -> void:
 		fr.albedo = FAR_ALBEDO
 		add_child(fr)
 		fr.setup(dir, W)
-	var start := Vector2.ZERO
+	ride_s = W.route_s_of_sol(DEFAULT_START_SOL)
+	var start := W.route_pos(ride_s)
 	for a in args:
 		if a.begins_with("--sol="):
 			start = W.route_pos(W.route_s_of_sol(int(a.get_slice("=", 1))))
@@ -618,7 +620,11 @@ func _setup_player() -> void:
 	right.tracker = &"right_hand"
 	origin.add_child(left)
 	origin.add_child(right)
-	right.button_pressed.connect(func(name: String): if name == "by_button" or name == "ax_button": _toggle_hazard())
+	right.button_pressed.connect(func(name: String):
+		if name == "by_button":
+			_toggle_ride()
+		elif name == "ax_button":
+			_toggle_hazard())
 	left.button_pressed.connect(func(name: String): if name == "by_button" or name == "ax_button": _toggle_hazard())
 
 
@@ -650,15 +656,21 @@ func _toggle_hazard() -> void:
 	terrain_mat.set_shader_parameter("hazard", hazard_on)
 
 
+func _toggle_ride() -> void:
+	if not world_mode:
+		return
+	riding = not riding
+	if riding:
+		ride_s = W.route_nearest_s(Vector2(origin.position.x, origin.position.z))
+
+
 func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventKey and e.pressed and e.keycode == KEY_H:
 		_toggle_hazard()
 	elif e is InputEventKey and e.pressed and e.keycode == KEY_ESCAPE:
 		get_tree().quit()
 	elif world_mode and e is InputEventKey and e.pressed and e.keycode == KEY_G:
-		riding = not riding
-		if riding:
-			ride_s = W.route_nearest_s(Vector2(origin.position.x, origin.position.z))
+		_toggle_ride()
 	elif e is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
 		yaw -= e.relative.x * 0.003
 		pitch = clampf(pitch - e.relative.y * 0.003, -1.4, 1.4)
