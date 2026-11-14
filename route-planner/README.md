@@ -12,7 +12,7 @@ multiplicado por penalizaciones de riesgo. Usar segundos como unidad única da d
 ```
 costo(a→b) = distancia_3D / velocidad(a→b)  ×  penalización
 velocidad   = Tobler(pendiente) × factor_terreno × factor_traje × factor_condición
-penalización = 1 + w_pend·exceso_pendiente² + w_rugosidad·rugosidad + w_sombra·sombra   (× bonus si va sobre la huella del rover)
+penalización = 1 + riesgo·(w_pend·exceso_pendiente² + w_rugosidad·rugosidad + w_terreno·riesgo_terreno[clase]) + w_sombra·sombra   (× bonus si va sobre la huella del rover)
 ```
 
 | Factor | De dónde sale | Por qué |
@@ -20,67 +20,193 @@ penalización = 1 + w_pend·exceso_pendiente² + w_rugosidad·rugosidad + w_somb
 | Distancia 3D | heightmap (1 m o 6 m) | subir también es distancia |
 | Pendiente | gradiente del heightmap; **asimétrica** (Tobler: bajar suave es lo más rápido) | subir ≠ bajar, por eso el grafo es dirigido |
 | Pendiente límite | ≥ 25° = intransitable; ≥ 15° penaliza (igual que `HAZARD_DEG` del visor) | seguridad con traje |
-| Tipo de terreno (proxy) | rugosidad del DEM + brillo del ortho HiRISE: roca firme 1.0, regolito 0.9, arena/óndulas 0.6, bloques 0.5 | aún no hay mapa geológico en la escena |
+| Tipo de terreno | `terrain_classes.py`: mapa externo si lo hay; si no, proxy (rugosidad del DEM + brillo del ortho HiRISE). Velocidad: roca firme 1.0, regolito 0.9, arena/duna 0.6, bloques 0.5; **riesgo extra**: duna 1.5, bloques 0.8, regolito 0.1 | una duna cuesta ~4× el terreno firme (velocidad 0.6 y penalización 2.5) |
 | Sombra | sombreado del relieve según azimut y elevación del sol | frío: evitar laderas sin sol |
 | Huella del rover | `route_local.json` (celdas a ≤ 2 m) | terreno ya explorado |
 | Condiciones | `normal`, `tormenta_polvo` (menos visibilidad, pendiente segura 8°, sigue más la huella), `frio_sombra` | cambian **la ruta**, no solo el ETA |
 
+## Reconocimiento de terreno (duna vs. terreno firme)
+
+`terrain_classes.py` produce una matriz de enteros con la **misma forma y georreferencia que la de pendientes** (cuadrícula n×n centrada
+en el origen de la escena, fila 0 = norte). Los códigos están definidos en un solo lugar:
+
+| Código | Clase | Nombre corto (HUD) |
+|---|---|---|
+| 0 | roca firme | roca firme |
+| 1 | regolito | regolito |
+| 2 | arena / duna | duna |
+| 3 | bloques / rocoso | bloques |
+
+Fuentes intercambiables (misma interfaz `fuente(g) -> (matriz, info)`):
+
+1. **Mapa externo** (`--terrain-map ruta`): `.npy`, `.png` (el valor del píxel es el código), `.f32` o `.u8` (n×n crudo). Debe cubrir el **mismo cuadrado**
+   que la capa; si su resolución difiere se remuestrea por vecino más cercano. Si usa otros códigos, un `ruta.json` con `{"codes": {"valor_externo": codigo}}`.
+   Para otra fuente (p. ej. un clasificador propio) basta una clase con `name` y `__call__(g)` (ver `make_source`).
+2. **Proxy** (por defecto): rugosidad del DEM + brillo del ortho (brillante y liso → roca; oscuro y liso → arena/duna; rugoso → bloques) y un filtro de moda 3×3 que quita celdas sueltas.
+   **Es una aproximación, no un mapa de dunas.** Los umbrales de brillo son percentiles de la propia escena, así que casi siempre marca ~20 % como "duna" aunque no haya ninguna.
+
+La fuente usada se registra en el log (con la advertencia del proxy) y en el JSON de salida (`terrain_source`). Cada punto de `guide_path.json` trae su clase en `terrain[]`
+y `summary.dune_m` los metros sobre duna. `--png-clases clases.png` guarda la matriz de clases (paleta + leyenda con porcentajes + ruta) para revisar el clasificador a ojo.
+
+### Riesgo (`--riesgo`)
+
+`--riesgo W` (default 1.0) multiplica el peso de pendiente, rugosidad y terreno frente a la distancia: **"ruta más cercana y menos peligrosa" = menor costo efectivo**.
+`0` = solo tiempo de marcha (cruza dunas si es más corto); `3` = rodea casi todo. No cambia el algoritmo, solo los costos. El ETA siempre es tiempo real de marcha, sin penalizaciones.
+
+### Supuestos configurables
+
+Todos los pesos viven en **`route_config.py`** y son **supuestos, no mediciones**: factores y riesgo por terreno, traje 0.55, pendientes 15°/25°, condiciones y umbrales del proxy.
+Se pueden sobrescribir sin tocar código: `--config mis_supuestos.json` (mismas claves, p. ej. `{"TERRAIN_RISK": {"2": 3.0}}`).
+
 ## Algoritmo (paso a paso)
 
-1. **Capas**: del heightmap salen la pendiente, la rugosidad y la sombra; del ortho, el brillo. Con eso se asigna una clase de terreno.
-2. **Costos**: se calcula la velocidad y la penalización por celda; se bloquean las celdas con pendiente ≥ 25°.
-3. **A\*** en una cuadrícula de 8 vecinos. Heurística = distancia en línea recta / velocidad máxima posible.
-   Nunca sobreestima el costo real, así que A\* da la ruta óptima, pero expande muchos menos nodos que Dijkstra.
-4. **Suavizado** con *string pulling*: un atajo en línea recta solo se acepta si su costo es como máximo un 2% mayor
-   que el del camino original. Después se aplica Chaikin para que la línea se vea natural en VR.
-5. **Exportar** `guide_path.json`: un punto por metro con altura, ETA acumulado, pendiente, clase de terreno y advertencias.
+1. **Capas**: del heightmap salen la pendiente, la rugosidad y la sombra; del ortho, el brillo. Con eso (o con un mapa externo) se asigna la clase de terreno.
+2. **Costos**: velocidad y penalización por celda según condición y `--riesgo`; se bloquean las celdas con pendiente ≥ 25°.
+3. **A\*** en una cuadrícula de 8 vecinos. Heurística = distancia en línea recta / velocidad máxima posible (admisible: da la ruta óptima).
+4. **Planificación jerárquica** (solo capas grandes, > 200 000 celdas, p. ej. el anillo de 3 km): A\* grueso en bloques de 4×4 celdas y A\* fino restringido a un corredor de ±3 celdas gruesas alrededor.
+5. **Suavizado** con *string pulling* (atajo solo si cuesta ≤ 2 % más; salto máximo de 60 nodos) y Chaikin. Chaikin puede rozar la esquina de una franja de duna (~1 celda).
+6. **Exportar** `guide_path.json`: un punto por metro con altura, ETA acumulado, pendiente, **clase de terreno**, advertencias (pendiente, bloques, tramo de duna) y lon/lat de cada punto.
 
 ## Uso
 
 ```bash
 cd route-planner
-source ../mars-route-walker/.venv/bin/activate      # numpy + Pillow
-SCENE=../mars-route-walker/viewer-godot/patch_793
+source ../.venv/bin/activate                         # numpy + Pillow
+SCENE=../viewer-godot/patch_793
 
-# Ruta corta en el parche caminable (1 m, ±45 m), las 3 condiciones + imagen de vista previa
-python mars_route.py $SCENE --start 0 0 --goal 40 40 --cond all --png preview.png
+# Ruta corta en el parche caminable (1 m, ±45 m), las 3 condiciones + vista previa + matriz de clases
+python mars_route.py $SCENE --start 0 0 --goal 40 40 --cond all --png preview.png --png-clases clases.png
 
-# Solo una condición (esto es lo que lee el visor)
-python mars_route.py $SCENE --start 0 0 --goal 40 40 --cond normal
+# Más cuidado con dunas/rocas/pendiente (o menos: --riesgo 0)
+python mars_route.py $SCENE --goal 40 40 --riesgo 3
 
-# Ruta larga en el anillo de 3 km (6 m/celda, ~15 s por condición)
+# Destino por lat/lon, o por punto guardado (id o nombre)
+python mars_route.py $SCENE --goal-latlon 18.4830 77.3690
+python mars_route.py $SCENE --waypoint origen_escena
+
+# Con un mapa de dunas/geológico propio en vez del proxy
+python mars_route.py $SCENE --goal 40 40 --terrain-map mi_mapa.npy
+
+# Ruta larga en el anillo de 3 km (6 m/celda; jerárquica automática, ~1.6 s)
 python mars_route.py $SCENE --layer ring_3km --goal 1800 -1500 --out ring_path.json --png ring.png
 ```
-Coordenadas en metros: **x = este, z = sur**, con origen en el waypoint del rover (las mismas del HUD del visor).
+Coordenadas en metros: **x = este, z = sur**, con origen en el waypoint del rover (las mismas del HUD del visor). `--start-latlon` y `--goal-latlon` usan grados decimales (lon este positiva).
+Si un punto dado en lat/lon cae sobre una celda intransitable se usa la transitable más cercana (≤ 5 m) y se **avisa**; si cae fuera de la capa se da un error claro. Los puntos `--start/--goal X Z` siguen siendo estrictos, como antes.
+
+### lat/lon (`geo.py`) y puntos guardados (`waypoints.py`)
+
+`geo.py` convierte lat/lon ↔ metros locales ↔ celda con la georreferencia de la escena (`scene.json → origin.lon/lat`) y la misma fórmula esférica de `marswalk.geo.Site`
+(x = R·cos(lat0)·Δlon, z = R·(lat0 − lat)). Es una aproximación local (sirve en ±3 km). Si la escena no trae `origin` lanza un error y **no inventa valores**.
+
+`viewer-godot/route/waypoints.json` guarda los puntos importantes (`id`, `nombre`, `lat`, `lon`, `descripcion`). Python y Godot leen el mismo archivo:
+
+```bash
+python waypoints.py list
+python waypoints.py add rescate "Punto de rescate" 18.4830 77.3690 "donde rescatamos al Ingenuity"
+python waypoints.py del rescate
+```
+Las entradas `base` y `rescate_ingenuity` son **placeholders** (`"placeholder": true`, lat/lon `null`): reemplázalas con coordenadas reales. Usarlas como destino da un error claro.
+`origen_escena` (de `scene.json`) e `ingenuity` (de `layers/ingenuity/ingenuity.json`) son coordenadas reales del repo; Ingenuity queda a ~2.7 km del origen, fuera del parche de 1 m (solo con `--layer ring_3km`).
+
+## Integración con el mapa
+
+El mapa (de tu compañera) solo necesita **emitir una señal en Godot**; todo lo demás funciona sin cambios. No se asume cómo está hecho el mapa.
+
+### En Godot (`viewer-godot/route/route_ui.gd`, nodo `RouteUI`)
+
+```gdscript
+signal destination_selected(lat: float, lon: float, nombre: String)   # ÚNICA puerta de entrada de destinos
+signal player_position_changed(lat: float, lon: float)                # salida: dónde está el jugador (cada ~0.5 s, solo si se movió)
+func set_start(lat: float, lon: float)    # entrada: el mapa fija el punto de partida (si no, se usa la posición del jugador)
+func clear_start()
+```
+El ingreso por teclado (`L`), los puntos guardados (`P`) y el mapa pasan por la **misma** señal. Ejemplo mínimo desde el código del mapa, al tocar un punto:
+
+```gdscript
+var route_ui := get_tree().root.find_child("RouteUI", true, false)   # lo crea main.gd en modo parche
+route_ui.destination_selected.emit(18.4830, 77.3690, "Punto tocado en el mapa")
+
+# para dibujar al jugador en el mapa:
+route_ui.player_position_changed.connect(func(lat, lon): mi_marcador.actualizar(lat, lon))
+```
+Para un punto importante marcado en el mapa, emitir sus `lat`, `lon` y `nombre` (o llamar `route_ui.select_waypoint("id")`).
+Otras señales: `route_ready(result_path)` y `route_failed(message)`.
+
+### En Python: `plan_route` y el contrato JSON
+
+```python
+import mars_route as m
+layers = m.load_layers("viewer-godot/patch_793")          # una sola vez (pendiente, rugosidad, sombra, terreno); se reutiliza
+res = m.plan_route(layers, start={"x": 0, "z": 0}, goal={"lat": 18.4830, "lon": 77.3690},
+                   condition="normal", risk_weight=1.0)   # sin estado global; llamar cuando se quiera
+res.ok, res.error_code, res.route, res.timing             # RouteResult
+```
+Por proceso (lo que usa Godot): `python mars_route.py ESCENA --request req.json --result res.json` (código de salida 0 = ok, 2 = error con detalle en el JSON).
+
+**Petición** (todos los campos salvo `goal` son opcionales):
+
+| Campo | Tipo / unidad | Significado |
+|---|---|---|
+| `scene` | texto | carpeta de la escena (con `scene.json`); si falta se usa el argumento posicional |
+| `layer` | texto | `terrain` (1 m, ±45 m; default) o `ring_3km` (6 m, ±3 km) |
+| `start`, `goal` | objeto | `{"x","z"}` metros locales (x este, z sur) · `{"lat","lon"}` grados decimales (lon este +) · `{"waypoint": id_o_nombre}`. Default de `start`: `{"x":0,"z":0}` |
+| `condition` | texto | `normal` (default), `tormenta_polvo`, `frio_sombra` |
+| `risk_weight` | número ≥ 0 | peso de riesgo (default 1.0) |
+| `terrain_map` | texto | mapa de clases externo (si no, proxy) |
+| `hierarchical` | `auto`/`on`/`off` | planificación jerárquica (default `auto`) |
+| `snap_m` | número, m | radio para mover un punto intransitable a la celda transitable más cercana (default 5; 0 = estricto) |
+| `waypoints`, `sun` | texto, `[az°, el°]` | archivo de puntos guardados; azimut y elevación del sol |
+
+**Respuesta**: `{"schema": 1, "ok": bool, "error": texto|null, "error_code": texto|null, "route": {...}|null, "warnings": [texto], "timing_ms": {...}}`.
+`route` es el `guide_path.json` (campos: `points` [x,y,z] en metros, `eta_s` segundos acumulados, `slope_deg` grados, `terrain` código por punto, `terrain_names`, `terrain_source`
+{`source`, `is_proxy`, `warning`}, `warnings` [{i, type, msg}], `lonlat` [lon, lat] por punto, `summary` {`length_m`, `eta_s`, `dune_m`, ...}, `risk_weight`, `conditions`).
+`error_code` estable: `peticion_invalida`, `escena_invalida`, `condicion_invalida`, `riesgo_invalido`, `punto_invalido`, `sin_georreferencia`, `fuera_de_capa`, `intransitable`,
+`waypoint_invalido`, `sin_ruta`. Un error nunca deja una ruta a medias.
+
+### Cómo Godot pide la ruta
+
+`RouteUI` escribe `user://route/req_N.json`, lanza `mars_route.py --request … --result …` con `OS.create_process` (**no bloquea el frame**), muestra "Calculando ruta a X…" en el HUD, sondea
+si terminó y entonces llama `GuidePath.set_route(res_N.json)`. Una petición nueva mata la anterior. Es un proceso por petición (~0.4 s en el parche, ~3 s en el anillo, casi todo carga de capas);
+si más adelante hace falta menos latencia, el siguiente paso es un proceso persistente que mantenga las capas cargadas. Python: `../.venv/bin/python` o `python3`.
+
+## Tiempos de planificación (medidos)
+
+| Caso | Capa | Tiempo de `plan_route` (capas ya cargadas) | Proceso completo |
+|---|---|---|---|
+| (0,0) → (40,40) | parche 1 m, 91×91 | **~85 ms** (A\* 58 ms, 1 590 nodos) | 0.41 s |
+| (0,0) → (1800,−1500), jerárquica | anillo 6 m, 1000×1000 | **~1.6 s** (grueso 0.3 s, fino 0.6 s, suavizado 0.6 s) | 3.1 s |
+| ídem, sin jerarquía | anillo | 6.0 s (A\* 5.5 s, 121 293 nodos) | – |
+
+**Elegí la jerarquía automática para capas grandes** porque la ruta larga exacta tarda 6 s (y antes ~30 s, casi todo en el suavizado, que ahora está vectorizado y acotado):
+demasiado para uso interactivo. La jerárquica explora 8× menos nodos y da una ruta ~0.6 % más lenta en ETA (3 592 s vs 3 574 s) en la prueba. El parche de 1 m no la necesita.
+La cuadrícula gruesa promedia pendientes, así que puede pasar por alto un paso estrecho entre zonas bloqueadas; en ese caso, si no encuentra ruta, vuelve a la búsqueda completa. `--hier off` fuerza la exacta.
 
 ## En el visor (Godot / VR)
 
-`guide_path.gd` es un nodo independiente. Dibuja chevrones en el suelo coloreados por riesgo
-(verde = ok, ámbar = pendiente, rojo = rocoso o muy empinado), una baliza con ETA en la meta y una flecha flotante
-frente a la vista que apunta 4 m adelante sobre la ruta (o de vuelta a la ruta si te sales a más de 3 m).
+Todo está en `viewer-godot/route/`: `guide_path.gd` (la línea guía) y `route_ui.gd` (destino, HUD, proceso externo). `main.gd` solo los crea en modo parche (`_route_setup()`, `--noroute` los desactiva)
+y agrega la salida al HUD. **No funciona aún en modo mundo (`--world=`)**: el planificador trabaja sobre las escenas de parche.
 
-1. Copiá `guide_path.gd` a `viewer-godot/` y el `guide_path.json` generado a la carpeta del parche.
-2. En `main.gd` (en tu rama, p. ej. `wally/aprendiendo`):
-```gdscript
-var guide: GuidePath                                   # arriba, con las otras variables
+Teclas: **L** escribir lat/lon (valida formato y rango y muestra el error en pantalla) · **P** lista de puntos guardados, número 1-9 · **R** recalcular desde donde estás hasta el último destino · **C** borrar ruta · **Esc** cierra el diálogo.
+El HUD muestra "Terreno: duna" (clase bajo el jugador, de la matriz del planificador), lat/lon, "(estimado: proxy)" si aplica, ETA, advertencias y "Calculando…".
 
-# en _ready(), después de _route():
-if FileAccess.file_exists(PATCH + "guide_path.json"):
-	guide = GuidePath.new()
-	guide.json_path = PATCH + "guide_path.json"
-	add_child(guide)
+`GuidePath`: chevrones en el suelo coloreados por riesgo (verde = ok, **morado = duna / arena suelta**, ámbar = pendiente ≥ 15°, rojo = bloques o ≥ 20°), baliza con nombre y ETA en la meta, flecha flotante 4 m adelante
+(o de vuelta a la ruta si te sales a más de 3 m). `set_route(ruta_json)` recarga una ruta en ejecución (acepta el `guide_path.json` o el sobre de `plan_route`); `clear_route()` la borra.
 
-# al final de _process(), después de armar hud.text:
-if guide:
-	guide.update_player(origin.position, cam.global_basis)
-	hud.text += guide.hud_line()
+Prueba headless (Godot 4.7.2): `godot --headless --path viewer-godot --script res://route/selftest.gd -- --patch=patch_793`.
+Si el caché de clases del proyecto está desactualizado (error `FarRings not declared`), corre antes `godot --headless --editor --quit --path viewer-godot`.
+**No probado en el headset VR** (la entrada de texto de `L` es por teclado; en VR hace falta un teclado virtual o usar `P`).
+
+## Tests
+
+```bash
+.venv/bin/python -m pytest tests            # clasificador, rutas que evitan/cruzan dunas, lat/lon, puntos guardados, contrato JSON, replanificación
 ```
-Probado en modo headless en Godot 4.7.2: el script carga, calcula la distancia restante y el ETA, y detecta cuando
-te salís de la ruta. **Todavía no se probó en el headset.**
 
 ## Límites honestos
 
-- El tipo de terreno es una aproximación (rugosidad + brillo), no un mapa geológico. Mejora siguiente: usar el mapa geológico de Jezero (Stack et al. 2020) o la clasificación de terreno de las rutas del rover.
+- **El reconocimiento de dunas con el proxy es poco confiable.** Usa solo brillo del ortho + rugosidad de un DEM de 1 m: no distingue arena de roca oscura, sombra o polvo, ni ve óndulas menores a ~2 m. Marca "duna" ~20 % de la escena por construcción (percentil), con o sin dunas reales. Sirve para probar el flujo; para decidir rutas reales hace falta un mapa de dunas/geológico (`--terrain-map`; p. ej. Stack et al. 2020 para Jezero).
 - Las rocas menores a 1 m no aparecen en el DEM. Las rocas del visor son sintéticas, así que la ruta no las esquiva.
-- Los parámetros (traje 0.55, 15°/25°, factores de terreno) son supuestos razonables para ajustar; no salen de mediciones.
-- El parche caminable mide solo 90 m. Para rutas largas, el anillo de 3 km planifica la ruta general y el parche de 1 m afina el tramo local (planificación jerárquica).
+- Los parámetros (traje 0.55, 15°/25°, factores y riesgo por terreno) son supuestos razonables; no salen de mediciones.
+- lat/lon usa una proyección esférica local; el origen debe estar en `scene.json`.
+- El parche caminable mide solo 90 m; destinos más lejos (p. ej. Ingenuity, ~2.7 km) solo se planifican por CLI en `ring_3km`.
+- Un punto intransitable se mueve a la celda transitable más cercana, que podría ser una zona aislada (entonces el error es `sin_ruta`).
