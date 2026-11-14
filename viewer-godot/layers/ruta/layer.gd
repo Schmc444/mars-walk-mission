@@ -7,6 +7,14 @@ var world: WorldStreamer
 var core: Node
 var rover: Node3D
 var rover_s := 0.0
+var rec_on := false
+var rec_data: Array = []      # [t, ride_s, riding, px,py,pz, qx,qy,qz,qw]
+var rec_t0 := 0
+var rec_save_clock := 0.0
+var rec_path := ""
+var play_data: Array = []
+var play_frame := 0
+var play_fps := 30.0
 var rover_full := false
 var rover_full_hq := "--rover=hq" in OS.get_cmdline_user_args()
 
@@ -29,6 +37,15 @@ func setup(w: WorldStreamer, c: Node) -> void:
 		rover_s = core.ride_s
 		_place()
 	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--play="):
+			var j = JSON.parse_string(FileAccess.get_file_as_string(a.get_slice("=", 1)))
+			if j != null:
+				play_data = j
+				print("ruta: reproduciendo ", play_data.size(), " muestras")
+		elif a.begins_with("--fps="):
+			play_fps = float(a.get_slice("=", 1))
+		elif a == "--rec":
+			_rec_toggle.call_deferred()
 		if a.begins_with("--lever="):
 			lever = clampf(float(a.get_slice("=", 1)), -1.0, 1.0)
 
@@ -48,6 +65,8 @@ func _unhandled_input(e: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if rover == null or not world.is_ready():
 		return
+	if not play_data.is_empty():
+		_play_apply()
 	if core.riding:
 		var inp: float = core.world_speed / 12.0   # joystick / WASD del core, -1..1
 		var target: float = inp * MAX_V if absf(inp) > 0.01 else lever * MAX_V
@@ -61,6 +80,10 @@ func _process(delta: float) -> void:
 			core.cam.position.y = DESKTOP_EYE
 	elif not core.in_xr:
 		core.cam.position.y = 1.6
+	if not play_data.is_empty():
+		_play_cam()
+	elif rec_on:
+		_rec_sample(delta)
 	if "--ruta-face" in OS.get_cmdline_user_args():
 		var f := -rover.global_transform.basis.z
 		core.yaw = atan2(-f.x, -f.z)
@@ -270,3 +293,72 @@ func _light_mat(m: Material) -> Material:
 	b.metallic = minf(b.metallic, 0.3)
 	mat_cache[m] = b
 	return b
+
+
+func _rec_toggle() -> void:
+	rec_on = not rec_on
+	if rec_on:
+		rec_data = []
+		rec_t0 = Time.get_ticks_msec()
+		var dir := OS.get_environment("HOME") + "/mars/rec"
+		DirAccess.make_dir_recursive_absolute(dir)
+		rec_path = "%s/rec_%s.json" % [dir, Time.get_datetime_string_from_system().replace(":", "-")]
+		print("ruta: GRABANDO -> ", rec_path)
+	else:
+		_rec_save()
+		print("ruta: grabacion guardada, muestras=", rec_data.size())
+
+
+func _rec_sample(delta: float) -> void:
+	var t: Transform3D = core.cam.global_transform
+	var q := t.basis.get_rotation_quaternion()
+	rec_data.append([snappedf((Time.get_ticks_msec() - rec_t0) / 1000.0, 0.001), snappedf(core.ride_s, 0.01), 1 if core.riding else 0,
+		snappedf(t.origin.x, 0.001), snappedf(t.origin.y, 0.001), snappedf(t.origin.z, 0.001),
+		snappedf(q.x, 0.0001), snappedf(q.y, 0.0001), snappedf(q.z, 0.0001), snappedf(q.w, 0.0001)])
+	rec_save_clock += delta
+	if rec_save_clock > 5.0:
+		rec_save_clock = 0.0
+		_rec_save()
+
+
+func _rec_save() -> void:
+	var f := FileAccess.open(rec_path, FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(rec_data))
+
+
+func _play_row() -> Array:
+	var t := play_frame / play_fps
+	var lo := 0
+	var hi := play_data.size() - 1
+	while lo < hi:
+		var mid := (lo + hi) / 2
+		if play_data[mid][0] < t:
+			lo = mid + 1
+		else:
+			hi = mid
+	var b: Array = play_data[lo]
+	var a: Array = play_data[maxi(lo - 1, 0)]
+	var span: float = maxf(b[0] - a[0], 1e-6)
+	var w := clampf((t - a[0]) / span, 0.0, 1.0)
+	var qa := Quaternion(a[6], a[7], a[8], a[9])
+	var qb := Quaternion(b[6], b[7], b[8], b[9])
+	var qs := qa.slerp(qb, w)
+	return [lerpf(a[1], b[1], w), b[2], Vector3(lerpf(a[3], b[3], w), lerpf(a[4], b[4], w), lerpf(a[5], b[5], w)), qs]
+
+
+func _play_apply() -> void:
+	var r := _play_row()
+	core.ride_s = r[0]
+	core.riding = r[1] == 1
+
+
+func _play_cam() -> void:
+	var r := _play_row()
+	if r[1] == 1:
+		core.origin.position = rover.position + rover.basis.y * SEAT_Y
+	core.cam.global_transform = Transform3D(Basis(r[3]), r[2])
+	play_frame += 1
+	if play_frame / play_fps > play_data[play_data.size() - 1][0]:
+		print("ruta: reproduccion terminada")
+		get_tree().quit()
