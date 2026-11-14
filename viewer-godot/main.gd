@@ -65,6 +65,7 @@ func ring_gain_at_patch() -> Dictionary:
 
 var W: WorldStreamer
 var world_mode := false
+const DEFAULT_START_SOL := 1063
 var ride_s := 0.0
 var riding := true
 var world_speed := 0.0
@@ -124,7 +125,8 @@ func _ready_world(dir: String) -> void:
 		fr.albedo = FAR_ALBEDO
 		add_child(fr)
 		fr.setup(dir, W)
-	var start := Vector2.ZERO
+	ride_s = W.route_s_of_sol(DEFAULT_START_SOL)
+	var start := W.route_pos(ride_s)
 	for a in args:
 		if a.begins_with("--sol="):
 			start = W.route_pos(W.route_s_of_sol(int(a.get_slice("=", 1))))
