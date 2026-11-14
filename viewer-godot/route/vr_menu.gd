@@ -30,7 +30,7 @@ func setup(route_ui: Node, core_node: Node) -> void:
 	if core.left != null:
 		core.left.button_pressed.connect(func(n: String):
 			print("vr_menu: izq boton ", n)
-			if n in ["primary_click", "menu_button", "select_button"]:
+			if n in ["menu_button", "select_button"]:
 				toggle())
 	if core.right != null:
 		core.right.button_pressed.connect(func(n: String):
