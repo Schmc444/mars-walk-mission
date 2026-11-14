@@ -53,6 +53,44 @@ def fill_nan(a):
     return a
 
 
+FILL = None   # (grid, x0_block, y0_block, cell_px): global low-res fill used for every nodata pixel (same value for shared borders)
+CELL = 10
+
+
+def build_fill(band, blocks):
+    import warnings
+    bxs, bys = [b[0] for b in blocks], [b[1] for b in blocks]
+    x0, y0 = min(bxs) - 1, min(bys) - 1
+    nb = BLOCK // CELL
+    G = np.full(((max(bys) - y0 + 2) * nb, (max(bxs) - x0 + 2) * nb), np.nan, "f4")
+    for bx, by in blocks:
+        a = load_dtm(band, bx, by)
+        if a is None:
+            continue
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            c = np.nanmean(a.reshape(nb, CELL, nb, CELL), (1, 3))
+        G[(by - y0) * nb:(by - y0 + 1) * nb, (bx - x0) * nb:(bx - x0 + 1) * nb] = c
+    known = np.isfinite(G)
+    F = fill_nan(G.copy())
+    F = np.where(np.isfinite(F), F, np.nanmean(G))
+    for _ in range(3000):
+        P = np.pad(F, 1, mode="edge")
+        F = np.where(known, G, (P[:-2, 1:-1] + P[2:, 1:-1] + P[1:-1, :-2] + P[1:-1, 2:]) / 4)
+    return F.astype("f4"), x0, y0
+
+
+def fill_sample(bx, by):
+    F, x0, y0 = FILL
+    fy = np.clip((by * BLOCK + np.arange(BLOCK + 1) - y0 * BLOCK - (CELL - 1) / 2) / CELL, 0, F.shape[0] - 1.001)
+    fx = np.clip((bx * BLOCK + np.arange(BLOCK + 1) - x0 * BLOCK - (CELL - 1) / 2) / CELL, 0, F.shape[1] - 1.001)
+    iy, ix = fy.astype(int), fx.astype(int)
+    ty, tx = (fy - iy)[:, None], (fx - ix)[None, :]
+    a, b = F[iy][:, ix], F[iy][:, ix + 1]
+    c, d = F[iy + 1][:, ix], F[iy + 1][:, ix + 1]
+    return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty
+
+
 def extended(band, bx, by):
     """BLOCK+1 square (own block + first row/col of the east/south/south-east neighbours)."""
     out = np.full((BLOCK + 1, BLOCK + 1), np.nan, "f4")
@@ -78,8 +116,9 @@ def do_block(arg):
     band, out, bx, by, datum = arg
     ext = extended(band, bx, by)
     nod = float(np.isnan(ext).mean())
-    if nod < 1:
-        ext = fill_nan(ext)
+    m = np.isnan(ext)
+    if m.any():
+        ext[m] = fill_sample(bx, by)[m]
     ext = np.nan_to_num(ext, nan=datum)
     cm = (ext - datum).astype("<f4")
     for st in T_STEPS:
@@ -120,6 +159,10 @@ def main():
         datum = float(np.nanmedian(ob))
     print("lat0 %.4f cos %.4f origin px (%.1f, %.1f) datum elev %.2f m" % (lat0, cosl, opx, opy, datum))
 
+    global FILL
+    t0 = time.time()
+    FILL = build_fill(a.band, [tuple(b) for b in m["blocks"]])
+    print("global nodata fill %.0fs" % (time.time() - t0), flush=True)
     os.makedirs(a.out, exist_ok=True)
     args = [(a.band, a.out, bx, by, datum) for bx, by in m["blocks"]]
     t0, res = time.time(), []
