@@ -22,6 +22,8 @@ Useful flags (after `--`): `--patch=<folder>`, `--cam=az,el,vfov`, `--norover`, 
 ## Equipo / ramas
 
 Trabajando en equipo: lee [`docs/EQUIPO.md`](docs/EQUIPO.md) (una rama `capa/<nombre>` por capa, cada quien en `viewer-godot/layers/<su_capa>/`, merge por Pull Request hacia `foundation`).
+Descargar el mundo (610 MB, release `world-v1`, repo privado): `GITHUB_TOKEN=<token con lectura> python tools/get_world.py` crea `./world`.
+
 Modo mundo completo (ruta de Perseverance, sols 0-1599): `godot --path viewer-godot --xr-mode off -- --world=<carpeta> --sol=1114`.
 
 ## What is in here
