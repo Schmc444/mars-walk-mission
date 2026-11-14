@@ -13,6 +13,7 @@ const MAX_ANG := deg_to_rad(60.0)
 const SEAT_Y := 1.0              # altura de la cubierta (el modelo mide 1.85 m con el mastil)
 const DESKTOP_EYE := 0.9         # ojos sobre la cubierta en escritorio (sentado)
 var lever_pos := Vector3(0.4, SEAT_Y + 0.3, -0.55)   # en el marco del rover (x der., y arriba, -z adelante)
+const TEX_MAX := 256
 const ROVER_LOD := 6          # nivel de detalle del modelo (mayor = menos triangulos)
 const LEVER_LEN := 0.45
 
@@ -215,8 +216,46 @@ func _simplify(n: Node) -> void:
 			if nl > 0:
 				arr[Mesh.ARRAY_INDEX] = im.get_surface_lod_indices(i, mini(ROVER_LOD, nl) - 1)
 			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-			out.surface_set_material(i, im.get_surface_material(i))
+			out.surface_set_material(i, _light_mat(im.get_surface_material(i)))
 		mi.mesh = out
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	for ch in n.get_children():
 		_simplify(ch)
+
+
+var mat_cache := {}
+
+
+func _light_mat(m: Material) -> Material:
+	if not (m is BaseMaterial3D):
+		return m
+	if mat_cache.has(m):
+		return mat_cache[m]
+	var b := (m as BaseMaterial3D).duplicate() as BaseMaterial3D
+	b.normal_enabled = false
+	b.rim_enabled = false
+	b.clearcoat_enabled = false
+	b.ao_enabled = false
+	b.heightmap_enabled = false
+	b.refraction_enabled = false
+	b.subsurf_scatter_enabled = false
+	b.detail_enabled = false
+	var t := b.albedo_texture
+	if t != null:
+		var img := t.get_image()
+		if img != null:
+			if img.is_compressed():
+				img.decompress()
+			var big := maxi(img.get_width(), img.get_height())
+			if big > TEX_MAX:
+				var f := float(TEX_MAX) / big
+				img.resize(maxi(int(img.get_width() * f), 1), maxi(int(img.get_height() * f), 1), Image.INTERPOLATE_BILINEAR)
+			img.generate_mipmaps()
+			b.albedo_texture = ImageTexture.create_from_image(img)
+	b.roughness_texture = null
+	b.metallic_texture = null
+	b.emission_texture = null
+	b.roughness = 0.8
+	b.metallic = minf(b.metallic, 0.3)
+	mat_cache[m] = b
+	return b
