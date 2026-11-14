@@ -2,7 +2,7 @@
  "schema": 1,
  "waypoints": [
   {"id": "origen_escena", "nombre": "Origen de la escena (waypoint del rover, sol 793)", "lat": 18.48255996, "lon": 77.36867979, "descripcion": "Coordenadas reales: scene.json -> origin de patch_793. Sirve para probar.", "fuente": "viewer-godot/patch_793/scene.json"},
-  {"id": "ingenuity", "nombre": "Ingenuity", "lat": 18.497263, "lon": 77.322539, "descripcion": "Coordenadas de layers/ingenuity/ingenuity.json. Esta a ~7 km del parche: solo alcanzable en modo mundo.", "fuente": "viewer-godot/layers/ingenuity/ingenuity.json"},
+  {"id": "ingenuity", "nombre": "Ingenuity", "lat": 18.497263, "lon": 77.322539, "descripcion": "Coordenadas de layers/ingenuity/ingenuity.json. Esta a ~2.7 km del origen: fuera del parche de 1 m (±45 m); solo se puede planificar con --layer ring_3km.", "fuente": "viewer-godot/layers/ingenuity/ingenuity.json"},
   {"id": "base", "nombre": "Base", "lat": null, "lon": null, "descripcion": "PLACEHOLDER: reemplaza lat/lon por las coordenadas reales de la base.", "placeholder": true},
   {"id": "rescate_ingenuity", "nombre": "Punto de rescate del Ingenuity", "lat": null, "lon": null, "descripcion": "PLACEHOLDER: reemplaza lat/lon por el punto donde se hara el rescate.", "placeholder": true}
  ]
