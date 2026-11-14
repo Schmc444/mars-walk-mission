@@ -14,6 +14,7 @@ var buttons: Array = []     # {mesh, rect: Rect2, fn: Callable, mat}
 var status_label: Label3D
 var ray: MeshInstance3D
 var hover := -1
+var grip_down := false
 
 
 func setup(route_ui: Node, core_node: Node) -> void:
@@ -28,10 +29,12 @@ func setup(route_ui: Node, core_node: Node) -> void:
 	add_child(ray)
 	if core.left != null:
 		core.left.button_pressed.connect(func(n: String):
-			if n == "grip_click" or n == "primary_click" or n == "menu_button":
+			print("vr_menu: izq boton ", n)
+			if n in ["primary_click", "menu_button", "select_button"]:
 				toggle())
 	if core.right != null:
 		core.right.button_pressed.connect(func(n: String):
+			print("vr_menu: der boton ", n)
 			if open and n == "trigger_click":
 				_click())
 
@@ -156,6 +159,13 @@ func _aim() -> Variant:
 
 
 func _process(_dt: float) -> void:
+	if core.left != null:
+		var g: float = core.left.get_float("grip")
+		if g > 0.85 and not grip_down:
+			grip_down = true
+			toggle()
+		elif g < 0.4:
+			grip_down = false
 	if not open or panel == null:
 		return
 	var s: String = ui.status if (ui.status != "" and Time.get_ticks_msec() / 1000.0 < ui.status_until) or ui._busy_pid > 0 else "Apunta con la derecha, gatillo para elegir"
