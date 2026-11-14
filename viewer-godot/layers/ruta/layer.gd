@@ -8,24 +8,15 @@ var core: Node
 var rover: Node3D
 var rover_s := 0.0
 
-const MAX_V := 50.0 / 3.6        # 50 km/h en m/s
+const MAX_V := 100.0 / 3.6       # 100 km/h en m/s
 const MAX_ANG := deg_to_rad(60.0)
 const SEAT_Y := 1.0              # altura de la cubierta (el modelo mide 1.85 m con el mastil)
 const DESKTOP_EYE := 0.9         # ojos sobre la cubierta en escritorio (sentado)
-var lever_pos := Vector3(0.4, SEAT_Y + 0.3, -0.55)   # en el marco del rover (x der., y arriba, -z adelante)
 const TEX_MAX := 256
-const ROVER_LOD := 6          # nivel de detalle del modelo (mayor = menos triangulos)
+const ROVER_LOD := 2          # nivel de detalle del modelo (mayor = menos triangulos)
 const LEVER_LEN := 0.45
 
 var lever := 0.0                 # -1..1, fraccion de la velocidad maxima
-var pivot: Node3D
-var knob: Node3D
-var speed_label: Label3D
-var grabbing := false
-var hand_marks: Array[MeshInstance3D] = []
-var pose_try := 0
-var pose_clock := 0.0
-const POSES: Array[StringName] = [&"grip", &"aim", &"default", &"grip_pose", &"aim_pose", &"default_pose"]
 
 
 func setup(w: WorldStreamer, c: Node) -> void:
@@ -35,19 +26,9 @@ func setup(w: WorldStreamer, c: Node) -> void:
 	if rover:
 		rover_s = core.ride_s
 		_place()
-		_build_lever()
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--lever="):
 			lever = clampf(float(a.get_slice("=", 1)), -1.0, 1.0)
-	for hc: XRController3D in [core.left, core.right]:
-		var m := MeshInstance3D.new()
-		var sm := SphereMesh.new()
-		sm.radius = 0.03
-		sm.height = 0.06
-		m.mesh = sm
-		m.material_override = _mat(Color(0.2, 0.7, 1.0))
-		hc.add_child(m)
-		hand_marks.append(m)
 
 
 func _unhandled_input(e: InputEvent) -> void:
@@ -66,10 +47,10 @@ func _process(delta: float) -> void:
 	if rover == null or not world.is_ready():
 		return
 	if core.riding:
-		_grab_input()
-		if absf(lever) > 0.001:
-			# la palanca manda: se reemplaza la velocidad que ya aplico el core este cuadro
-			core.ride_s = clampf(core.ride_s + (lever * MAX_V - core.world_speed) * delta, 0.0, world.route_length())
+		var inp: float = core.world_speed / 12.0   # joystick / WASD del core, -1..1
+		var target: float = inp * MAX_V if absf(inp) > 0.01 else lever * MAX_V
+		if absf(target - core.world_speed) > 0.001:
+			core.ride_s = clampf(core.ride_s + (target - core.world_speed) * delta, 0.0, world.route_length())
 		rover_s = core.ride_s
 	_place()
 	if core.riding:
@@ -78,7 +59,6 @@ func _process(delta: float) -> void:
 			core.cam.position.y = DESKTOP_EYE
 	elif not core.in_xr:
 		core.cam.position.y = 1.6
-	_update_lever()
 	if "--ruta-face" in OS.get_cmdline_user_args():
 		var f := -rover.global_transform.basis.z
 		core.yaw = atan2(-f.x, -f.z)
@@ -115,7 +95,7 @@ func _load_rover() -> Node3D:
 	holder.name = "Perseverance"
 	holder.add_child(scene)
 	add_child(holder)
-	_simplify(holder)
+	_simplify(scene as Node3D)
 	var acc: Array = [null]
 	_aabb(holder, holder, acc)
 	var bb: AABB = acc[0]
@@ -132,43 +112,6 @@ func _aabb(n: Node, root: Node3D, acc: Array) -> void:
 		_aabb(ch, root, acc)
 
 
-func _build_lever() -> void:
-	pivot = Node3D.new()
-	add_child(pivot)
-	var base := MeshInstance3D.new()
-	var bm := CylinderMesh.new()
-	bm.top_radius = 0.05
-	bm.bottom_radius = 0.07
-	bm.height = 0.06
-	base.mesh = bm
-	base.material_override = _mat(Color(0.15, 0.15, 0.17))
-	pivot.add_child(base)
-	var stick := MeshInstance3D.new()
-	var cm := CylinderMesh.new()
-	cm.top_radius = 0.012
-	cm.bottom_radius = 0.015
-	cm.height = LEVER_LEN
-	stick.mesh = cm
-	stick.position.y = LEVER_LEN / 2.0
-	stick.material_override = _mat(Color(0.7, 0.7, 0.72))
-	pivot.add_child(stick)
-	knob = MeshInstance3D.new()
-	var sm := SphereMesh.new()
-	sm.radius = 0.035
-	sm.height = 0.07
-	knob.mesh = sm
-	knob.position.y = LEVER_LEN
-	knob.material_override = _mat(Color(0.9, 0.2, 0.1))
-	pivot.add_child(knob)
-	speed_label = Label3D.new()
-	speed_label.font_size = 48
-	speed_label.pixel_size = 0.0007
-	speed_label.no_depth_test = true
-	speed_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	speed_label.position = Vector3(0, LEVER_LEN + 0.12, 0)
-	pivot.add_child(speed_label)
-
-
 func _mat(c: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = c
@@ -177,50 +120,77 @@ func _mat(c: Color) -> StandardMaterial3D:
 	return m
 
 
-func _update_lever() -> void:
-	lever_pos = Vector3(0.3, SEAT_Y + 0.6, -0.4) if core.in_xr else Vector3(0.4, SEAT_Y + 0.3, -0.55)
-	pivot.visible = core.riding
-	if not core.riding:
-		return
-	pivot.global_transform = rover.global_transform * Transform3D(Basis(Vector3.RIGHT, -lever * MAX_ANG), lever_pos)
-	speed_label.text = "%+.0f km/h" % (lever * 50.0)
+func _simplify(scene: Node3D) -> void:
+	var groups := {}   # material -> {"v": PackedVector3Array, "n": ..., "uv": PackedVector2Array, "i": PackedInt32Array}
+	var olds: Array[MeshInstance3D] = []
+	_collect(scene, scene, groups, olds)
+	for mi in olds:
+		if not is_instance_valid(mi):
+			continue
+		mi.get_parent().remove_child(mi)
+		mi.free()
+	var out := ArrayMesh.new()
+	for m in groups:
+		var g: Dictionary = groups[m]
+		if (g["v"] as PackedVector3Array).is_empty() or (g["i"] as PackedInt32Array).is_empty():
+			continue
+		var arr := []
+		arr.resize(Mesh.ARRAY_MAX)
+		arr[Mesh.ARRAY_VERTEX] = g["v"]
+		arr[Mesh.ARRAY_NORMAL] = g["n"]
+		arr[Mesh.ARRAY_TEX_UV] = g["uv"]
+		arr[Mesh.ARRAY_INDEX] = g["i"]
+		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		out.surface_set_material(out.get_surface_count() - 1, _light_mat(m))
+	var merged := MeshInstance3D.new()
+	merged.name = "RoverMerged"
+	merged.mesh = out
+	merged.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	scene.add_child(merged)
+	print("ruta: rover fusionado, superficies=", out.get_surface_count())
 
 
-func _grab_input() -> void:
-	if not core.in_xr or core.right == null:
-		return
-	var g: float = core.right.get_float("grip")
-	var hand: Vector3 = core.right.global_position
-	if not grabbing:
-		if g > 0.7 and hand.distance_to(knob.global_position) < 0.25:
-			grabbing = true
-	elif g < 0.4:
-		grabbing = false
-	if grabbing:
-		var d: Vector3 = rover.global_transform.affine_inverse() * hand - lever_pos
-		lever = clampf(atan2(-d.z, d.y) / MAX_ANG, -1.0, 1.0)
-
-
-func _simplify(n: Node) -> void:
+func _collect(n: Node, root: Node3D, groups: Dictionary, olds: Array[MeshInstance3D]) -> void:
 	if n is MeshInstance3D and (n as MeshInstance3D).mesh is ArrayMesh:
 		var mi := n as MeshInstance3D
 		var src: ArrayMesh = mi.mesh
+		var xf: Transform3D = root.global_transform.affine_inverse() * mi.global_transform
+		var nb := xf.basis.inverse().transposed()
 		var im := ImporterMesh.new()
-		for i in src.get_surface_count():
-			im.add_surface(Mesh.PRIMITIVE_TRIANGLES, src.surface_get_arrays(i), [], {}, src.surface_get_material(i))
+		for si in src.get_surface_count():
+			im.add_surface(Mesh.PRIMITIVE_TRIANGLES, src.surface_get_arrays(si), [], {}, src.surface_get_material(si))
 		im.generate_lods(25.0, 60.0, [])
-		var out := ArrayMesh.new()
-		for i in im.get_surface_count():
-			var arr := im.get_surface_arrays(i)
-			var nl := im.get_surface_lod_count(i)
+		for si in im.get_surface_count():
+			var arr := im.get_surface_arrays(si)
+			var nl := im.get_surface_lod_count(si)
+			var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
 			if nl > 0:
-				arr[Mesh.ARRAY_INDEX] = im.get_surface_lod_indices(i, mini(ROVER_LOD, nl) - 1)
-			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-			out.surface_set_material(i, _light_mat(im.get_surface_material(i)))
-		mi.mesh = out
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				idx = im.get_surface_lod_indices(si, mini(ROVER_LOD, nl) - 1)
+			var mat: Material = im.get_surface_material(si)
+			if not groups.has(mat):
+				groups[mat] = {"v": PackedVector3Array(), "n": PackedVector3Array(), "uv": PackedVector2Array(), "i": PackedInt32Array()}
+			var g: Dictionary = groups[mat]
+			var gv: PackedVector3Array = g["v"]
+			var gn: PackedVector3Array = g["n"]
+			var gu: PackedVector2Array = g["uv"]
+			var gi: PackedInt32Array = g["i"]
+			var base: int = gv.size()
+			var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var ns: PackedVector3Array = arr[Mesh.ARRAY_NORMAL] if arr[Mesh.ARRAY_NORMAL] != null else PackedVector3Array()
+			var us: PackedVector2Array = arr[Mesh.ARRAY_TEX_UV] if arr[Mesh.ARRAY_TEX_UV] != null else PackedVector2Array()
+			for k in vs.size():
+				gv.append(xf * vs[k])
+				gn.append((nb * ns[k]).normalized() if k < ns.size() else Vector3.UP)
+				gu.append(us[k] if k < us.size() else Vector2.ZERO)
+			for k in idx:
+				gi.append(base + k)
+			g["v"] = gv
+			g["n"] = gn
+			g["uv"] = gu
+			g["i"] = gi
+		olds.append(mi)
 	for ch in n.get_children():
-		_simplify(ch)
+		_collect(ch, root, groups, olds)
 
 
 var mat_cache := {}
