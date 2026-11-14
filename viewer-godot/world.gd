@@ -437,7 +437,7 @@ func _chunk_arrays(h: PackedFloat32Array, lod: int, px0: int, py0: int, size_px:
 # ---------------------------------------------------------------- main-thread side
 
 func _collect() -> void:
-	var budget := 3
+	var budget := 8
 	while budget > 0:
 		_mx.lock()
 		var a: Dictionary = _done.pop_front() if not _done.is_empty() else {}
