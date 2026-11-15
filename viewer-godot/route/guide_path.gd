@@ -41,6 +41,8 @@ var hud_terrain := true                 # false si otro nodo (RouteUI) ya muestr
 var _chevrons: MultiMeshInstance3D
 var _chev_pt := PackedInt32Array()      # índice de punto de ruta de cada chevron (para re-pegarlos al terreno)
 var _heights_ms := 0                    # último refresco de alturas
+var _scan_ms := 0                       # último recorrido completo de la ruta
+var _scan_off := false                  # ese recorrido tampoco encontró la ruta a menos de off_route_warn
 var _goal_mesh: MeshInstance3D
 
 
@@ -71,6 +73,7 @@ func clear_route() -> void:
 	data = {}
 	_state = {}
 	_last_i = 0
+	_scan_off = false
 
 
 func set_route(path: String, dest_name := "") -> bool:
@@ -273,12 +276,16 @@ func update_player(player_pos: Vector3, head_basis: Basis, head_pos := Vector3.I
 		if dd < best:
 			best = dd
 			_last_i = k
-	if sqrt(best) > off_route_warn:      # lost track (teleport, big detour): scan the whole route once
+	# lost track (teleport, big detour): scan the whole route. Si el último recorrido completo tampoco halló la ruta (sigue
+	# lejos, p. ej. en el rover), se repite como mucho 4 veces por segundo en vez de en cada cuadro.
+	if sqrt(best) > off_route_warn and (not _scan_off or Time.get_ticks_msec() - _scan_ms >= 250):
 		for k in pts.size():
 			var dd := Vector2(pts[k].x - player_pos.x, pts[k].z - player_pos.z).length_squared()
 			if dd < best:
 				best = dd
 				_last_i = k
+		_scan_ms = Time.get_ticks_msec()
+		_scan_off = sqrt(best) > off_route_warn
 	var i := _last_i
 	var pr := _project(player_pos, i)
 	var off: float = pr["d"]

@@ -242,10 +242,23 @@ func _process_world(delta: float) -> void:
 	p.y = W.height_at(p.x + head_off.x, p.z + head_off.z)
 	origin.position = p
 	W.focus = p
-	hud.text = "Mars Route Walker · sol %d · %s · %.0f m de ruta · pendiente %.1f° · H: peligro %s · G: bajar/subir del rover\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm" % [W.route_sol_at(ride_s), "en el rover" if riding else "a pie", ride_s, W.slope_deg(p.x, p.z), "ON" if hazard_on else "off"]
 	if route_ui:
 		route_ui.tick(p, cam.global_basis, delta)
-		hud.text += route_ui.hud_lines(p)
+	if _hud_due(delta):
+		hud.text = "Mars Route Walker · sol %d · %s · %.0f m de ruta · pendiente %.1f° · H: peligro %s · G: bajar/subir del rover\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm" % [W.route_sol_at(ride_s), "en el rover" if riding else "a pie", ride_s, W.slope_deg(p.x, p.z), "ON" if hazard_on else "off"] \
+			+ (route_ui.hud_lines(p) if route_ui else "")
+
+
+var _hud_t := 0.0
+
+
+func _hud_due(delta: float) -> bool:
+	# El texto del HUD (formato de cadenas + re-maquetado del Label) se rehace a 10 Hz, no en cada cuadro.
+	_hud_t -= delta
+	if _hud_t > 0.0:
+		return false
+	_hud_t = 0.1
+	return true
 
 
 func _route_setup() -> void:
@@ -793,10 +806,11 @@ func _process(delta: float) -> void:
 	p.z = clampf(p.z, -LIMIT, LIMIT)
 	p.y = height_at(p.x, p.z)
 	origin.position = p
-	hud.text = "Mars Route Walker · %s · pendiente aquí %.1f° · H: capa de peligro %s\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm · rocas SINTÉTICAS (ilustrativas)" % [str(scene.get("label", "")), slope_deg(p.x, p.z), "ON" if hazard_on else "off"]
 	if route_ui:
 		route_ui.tick(p, cam.global_basis, delta)
-		hud.text += route_ui.hud_lines(p)
+	if _hud_due(delta):
+		hud.text = "Mars Route Walker · %s · pendiente aquí %.1f° · H: capa de peligro %s\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm · rocas SINTÉTICAS (ilustrativas)" % [str(scene.get("label", "")), slope_deg(p.x, p.z), "ON" if hazard_on else "off"] \
+			+ (route_ui.hud_lines(p) if route_ui else "")
 
 
 func _farfield() -> void:
