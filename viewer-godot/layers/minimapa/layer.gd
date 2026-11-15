@@ -3,7 +3,7 @@ extends Node3D
 # Usa los vertices reales de la ruta (en el tramo van cada ~0.8 m), sin remuestrear.
 #   - Pequeno: esquina inferior derecha, tramo de ~1.2 km alrededor del rover. Clic o Tab lo agranda.
 #   - Grande, con dos pestanas (clic o teclas F4 y F5):
-#       1 · Toda la ruta                      2 · Sol 1063–1116 · Ingenuity (solo la ruta de ese rango de soles)
+#       1 · Ruta Completa                     2 · Ruta Ingenuity (solo la ruta del sol 1063 al 1116)
 #     En ambas: rueda = zoom (hacia el cursor), arrastrar = mover, doble clic o Inicio = encuadrar,
 #     puntos blancos = fin de cada conduccion con su sol (pasa el cursor sobre uno para ver "Sol N").
 #   - En VR: panel que sigue a la cabeza (a la izquierda, como el de atmosfera), siempre pequeno; main.gd lo
@@ -13,10 +13,17 @@ extends Node3D
 # world.route_xz / route_s / route_sol; core.origin, core.ride_s, core.riding, core.in_xr.
 
 # Tramos especificos por sol (cada uno es una pestana despues de "Toda la ruta"). sol_ini y sol_fin inclusivos.
-# "marca" es opcional: [lon, lat, texto]; se dibuja solo si cae dentro de la vista.
 const TRAMOS := [
-	{"nombre": "Sol 1063–1116 · Ingenuity", "sol0": 1063, "sol1": 1116,
-		"marca": [77.322539, 18.497263, "Ingenuity"]},
+	{"nombre": "Ruta Ingenuity", "sol0": 1063, "sol1": 1116},
+]
+
+# Ingenuity: posicion del vuelo 72 (18 ene 2024, Airfield Chi, Valinor Hills). Fuente: lista de vuelos de Wikipedia
+# (List of Ingenuity flights) y la guia del equipo (docs/EQUIPO.md); queda ~364 m al norte de la ruta, a la altura del sol 1114.
+# Marcas sobre el mapa (pin con punta en la posicion). "tipo": "helicoptero" o "muestra".
+const MARCAS := [
+	{"tipo": "helicoptero", "texto": "Ingenuity", "lon": 77.322539, "lat": 18.497263},
+	# Muestra 24: lat 18.49186664 N, lon 77.3272192 E, elevacion -2382.434036 m (dato dado por el equipo).
+	{"tipo": "muestra", "texto": "Muestra 24", "lon": 77.3272192, "lat": 18.49186664},
 ]
 
 const TAM_CHICO := 256
@@ -171,6 +178,10 @@ func _encuadrar(m: int) -> void:
 	for v in fp:
 		mn = Vector2(minf(mn.x, v.x), minf(mn.y, v.y))
 		mx = Vector2(maxf(mx.x, v.x), maxf(mx.y, v.y))
+	for mk in MARCAS:
+		var q := world.lonlat_to_world(float(mk["lon"]), float(mk["lat"]))
+		mn = Vector2(minf(mn.x, q.x), minf(mn.y, q.y))
+		mx = Vector2(maxf(mx.x, q.x), maxf(mx.y, q.y))
 	var ext := Vector2(maxf(mx.x - mn.x, 1.0), maxf(mx.y - mn.y, 1.0))
 	var util := _util()
 	_esc_fit[m] = minf(util.size.x / ext.x, util.size.y / ext.y)
@@ -180,8 +191,11 @@ func _encuadrar(m: int) -> void:
 
 
 func _util() -> Rect2:
+	# Arriba queda sitio para el pin de Ingenuity y su texto; abajo, para la escala y las coordenadas.
 	var pad := MARGEN + 14.0
-	return Rect2(pad, ALTO_PESTANAS + 14.0, _tam - 2.0 * pad, _tam - ALTO_PESTANAS - 14.0 - pad)
+	var top := ALTO_PESTANAS + 72.0
+	var bajo := 76.0
+	return Rect2(pad, top, _tam - 2.0 * pad, _tam - top - bajo)
 
 
 func _mundo_a_px(v: Vector2) -> Vector2:
@@ -416,7 +430,7 @@ func alternar() -> void:
 
 
 func _nombre_modo(i: int) -> String:
-	return "Toda la ruta" if i == 0 else str(TRAMOS[i - 1]["nombre"])
+	return "Ruta Completa" if i == 0 else str(TRAMOS[i - 1]["nombre"])
 
 
 # ---------------------------------------------------------------- entrada
@@ -614,14 +628,13 @@ func _dibujar_grande() -> void:
 			lienzo.draw_string(f, p + Vector2(6, -6), "%d" % e[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.85))
 			ultimo = p
 
-	# Marca opcional del tramo (p. ej. Ingenuity), solo si cae dentro de la vista.
-	if modo >= 1 and TRAMOS[modo - 1].has("marca"):
-		var mk: Array = TRAMOS[modo - 1]["marca"]
-		var pm := _mundo_a_px(world.lonlat_to_world(float(mk[0]), float(mk[1])))
-		if util.has_point(pm):
-			lienzo.draw_circle(pm, 7.0, Color(0, 0, 0, 0.8))
-			lienzo.draw_circle(pm, 5.0, C_MARCA)
-			lienzo.draw_string(f, pm + Vector2(10, 5), str(mk[2]), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, C_MARCA)
+	# Marcas (Ingenuity, muestra 24...), en las dos pestanas, si caen dentro de la vista.
+	for mk in MARCAS:
+		var pm := _mundo_a_px(world.lonlat_to_world(float(mk["lon"]), float(mk["lat"])))
+		if Rect2(Vector2.ZERO, Vector2(_tam, _tam)).grow(-6).has_point(pm) and pm.y > ALTO_PESTANAS + 34.0:
+			_pin(pm, str(mk["tipo"]))
+			var col := Color(0.75, 0.9, 1.0) if mk["tipo"] == "helicoptero" else Color(0.8, 1.0, 0.8)
+			lienzo.draw_string(f, pm + Vector2(14, -22), str(mk["texto"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, col)
 
 	# El rover, si esta dentro del rango de esta pestana.
 	var fs: PackedFloat32Array = _fuente_s(modo)
@@ -641,16 +654,26 @@ func _dibujar_grande() -> void:
 	var barra_m := _escala_redonda((_tam * 0.2) / esc)
 	lienzo.draw_line(Vector2(16, _tam - 20), Vector2(16 + barra_m * esc, _tam - 20), Color(1, 1, 1, 0.9), 3.0)
 	lienzo.draw_string(f, Vector2(16, _tam - 28), _fmt_m(barra_m), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1, 1, 1, 0.9))
-	lienzo.draw_string(f, Vector2(16, ALTO_PESTANAS + 22), "Rueda: zoom · arrastrar: mover · doble clic: encuadrar", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 1, 1, 0.7))
+	_dibujar_ayuda(f)
 	var info := "%.1f km de ruta" % (world.route_length() / 1000.0) if modo == 0 else "sols %d–%d" % [TRAMOS[modo - 1]["sol0"], TRAMOS[modo - 1]["sol1"]]
 	lienzo.draw_string(f, Vector2(_tam - 220, _tam - 28), info, HORIZONTAL_ALIGNMENT_RIGHT, 204, 15, Color(1, 1, 1, 0.8))
-	if modo >= 1:
-		lienzo.draw_string(f, Vector2(_tam - 260, _tam - 68), "línea %s (F10)" % ("pulida" if _pulido else "original"), HORIZONTAL_ALIGNMENT_RIGHT, 244, 14, Color(1, 1, 1, 0.6))
 	# Longitud y latitud: del cursor si esta sobre el mapa, si no del rover.
-	var sobre := util.has_point(_mouse)
-	var c_txt := ("Cursor  " + _fmt_lonlat(_px_a_mundo(_mouse))) if sobre else ("Rover  " + _fmt_lonlat(_pos))
+	var c_txt := ("Cursor  " + _fmt_lonlat(_px_a_mundo(_mouse))) if util.has_point(_mouse) else ("Rover  " + _fmt_lonlat(_pos))
 	lienzo.draw_string(f, Vector2(_tam - 400, _tam - 8), c_txt, HORIZONTAL_ALIGNMENT_RIGHT, 388, 14, Color(1, 1, 1, 0.9))
 	lienzo.draw_string(f, Vector2(_tam - 220, _tam - 48), "zoom ×%.1f" % (esc / _esc_fit[modo]), HORIZONTAL_ALIGNMENT_RIGHT, 204, 14, Color(1, 1, 1, 0.6))
+
+
+# Los controles, en un cuadrito arriba a la derecha.
+func _dibujar_ayuda(f: Font) -> void:
+	var lineas: Array = ["Rueda: zoom", "Arrastrar: mover", "Doble clic: encuadrar"]
+	var ancho := 0.0
+	for l in lineas:
+		ancho = maxf(ancho, f.get_string_size(l, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x)
+	var rc := Rect2(_tam - ancho - 28.0, ALTO_PESTANAS + 6.0, ancho + 18.0, lineas.size() * 17.0 + 10.0)
+	lienzo.draw_rect(rc, Color(0, 0, 0, 0.5))
+	lienzo.draw_rect(rc, Color(1, 1, 1, 0.3), false, 1.2)
+	for i in lineas.size():
+		lienzo.draw_string(f, rc.position + Vector2(9, 18 + i * 17.0), lineas[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 1, 1, 0.85))
 
 
 func _dibujar_pestanas() -> void:
@@ -690,6 +713,27 @@ func _escala_redonda(m: float) -> float:
 		if k * p >= m * 0.7:
 			return k * p
 	return p
+
+
+# Pin con borde amarillo (como el de NASA); la punta senala la posicion exacta. Azul + helicoptero, o verde + muestra.
+func _pin(tip: Vector2, tipo: String) -> void:
+	var fondo := C_MARCA if tipo == "helicoptero" else Color(0.35, 0.8, 0.4)
+	var c := tip + Vector2(0, -20)
+	lienzo.draw_colored_polygon(PackedVector2Array([tip, c + Vector2(-9, 4), c + Vector2(9, 4)]), Color(1.0, 0.9, 0.1))
+	lienzo.draw_circle(c, 13.0, Color(1.0, 0.9, 0.1))
+	lienzo.draw_colored_polygon(PackedVector2Array([tip + Vector2(0, -2), c + Vector2(-7.5, 5), c + Vector2(7.5, 5)]), fondo)
+	lienzo.draw_circle(c, 11.0, fondo)
+	var b := Color(1, 1, 1)
+	if tipo == "helicoptero":
+		lienzo.draw_line(c + Vector2(-8, -6), c + Vector2(8, -6), b, 1.6)      # rotor
+		lienzo.draw_line(c + Vector2(0, -6), c + Vector2(0, -3), b, 1.6)       # mastil
+		lienzo.draw_circle(c + Vector2(0, -0.5), 3.2, b)                       # cuerpo
+		lienzo.draw_line(c + Vector2(3, -0.5), c + Vector2(8, -2), b, 1.4)     # cola
+		lienzo.draw_line(c + Vector2(-5, 5), c + Vector2(5, 5), b, 1.4)        # patines
+	else:
+		# Tubo de muestra: cuerpo con tapa.
+		lienzo.draw_rect(Rect2(c + Vector2(-3, -7), Vector2(6, 13)), b)
+		lienzo.draw_rect(Rect2(c + Vector2(-4.5, -8.5), Vector2(9, 3)), Color(0.2, 0.45, 0.25))
 
 
 func _punto(p: Vector2, r: float) -> void:
