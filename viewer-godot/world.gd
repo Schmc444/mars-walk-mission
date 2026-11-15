@@ -229,6 +229,13 @@ func _post(prio: float, kind: String, t: Dictionary, args: Dictionary) -> void:
 	args["kind"] = kind
 	args["t"] = t
 	args["key"] = key
+	# Lo que lee el hilo se copia aqui (hilo principal): antes el hilo leia t["h1"] del Dictionary del tile mientras
+	# _update/_collect lo reescriben (h1 se libera al alejarse) -> carrera, y un chunk de 1 m con h1 ya vacio = indice fuera de rango.
+	args["k"] = t["k"]
+	if kind == "chunk":
+		args["h"] = t["h1"] if int(args["lod"]) == 1 else t["h5"]
+	elif kind == "far":
+		args["h"] = t["h20"]
 	_mx.lock()
 	_jobs.append([prio, args])
 	_mx.unlock()
@@ -326,8 +333,7 @@ func _worker() -> void:
 		if job.is_empty():
 			continue
 		var a: Dictionary = job[1]
-		var t: Dictionary = a["t"]
-		var k: Vector2i = t["k"]
+		var k: Vector2i = a["k"]
 		match a["kind"]:
 			"h1":
 				a["data"] = _read_f32(dir + "terrain/t1/%d_%d.f32" % [k.x, k.y])
@@ -340,10 +346,9 @@ func _worker() -> void:
 			"chunk":
 				var c: Vector2i = a["c"]
 				var lod: int = a["lod"]
-				var h: PackedFloat32Array = t["h1"] if lod == 1 else t["h5"]
-				a["arr"] = _chunk_arrays(h, lod, c.x * CHUNK_PX, c.y * CHUNK_PX, CHUNK_PX)
+				a["arr"] = _chunk_arrays(a["h"], lod, c.x * CHUNK_PX, c.y * CHUNK_PX, CHUNK_PX)
 			"far":
-				a["arr"] = _chunk_arrays(t["h20"], 20, 0, 0, block)
+				a["arr"] = _chunk_arrays(a["h"], 20, 0, 0, block)
 		_mx.lock()
 		_done.append(a)
 		_mx.unlock()
