@@ -645,7 +645,7 @@ func _dibujar_grande() -> void:
 	var info := "%.1f km de ruta" % (world.route_length() / 1000.0) if modo == 0 else "sols %d–%d" % [TRAMOS[modo - 1]["sol0"], TRAMOS[modo - 1]["sol1"]]
 	lienzo.draw_string(f, Vector2(_tam - 220, _tam - 28), info, HORIZONTAL_ALIGNMENT_RIGHT, 204, 15, Color(1, 1, 1, 0.8))
 	if modo >= 1:
-		lienzo.draw_string(f, Vector2(_tam - 260, _tam - 68), "línea %s (P)" % ("pulida" if _pulido else "original"), HORIZONTAL_ALIGNMENT_RIGHT, 244, 14, Color(1, 1, 1, 0.6))
+		lienzo.draw_string(f, Vector2(_tam - 260, _tam - 68), "línea %s (F10)" % ("pulida" if _pulido else "original"), HORIZONTAL_ALIGNMENT_RIGHT, 244, 14, Color(1, 1, 1, 0.6))
 	lienzo.draw_string(f, Vector2(_tam - 220, _tam - 48), "N ↑   zoom ×%.1f" % (esc / _esc_fit[modo]), HORIZONTAL_ALIGNMENT_RIGHT, 204, 14, Color(1, 1, 1, 0.6))
 
 
