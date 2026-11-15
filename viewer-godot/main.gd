@@ -238,7 +238,8 @@ func _process_world(delta: float) -> void:
 		var rp := W.route_pos(ride_s)
 		p.x = rp.x
 		p.z = rp.y
-	p.y = W.height_at(p.x, p.z)
+	var head_off := cam.global_position - origin.global_position if in_xr else Vector3.ZERO
+	p.y = W.height_at(p.x + head_off.x, p.z + head_off.z)
 	origin.position = p
 	W.focus = p
 	hud.text = "Mars Route Walker · sol %d · %s · %.0f m de ruta · pendiente %.1f° · H: peligro %s · G: bajar/subir del rover\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm" % [W.route_sol_at(ride_s), "en el rover" if riding else "a pie", ride_s, W.slope_deg(p.x, p.z), "ON" if hazard_on else "off"]

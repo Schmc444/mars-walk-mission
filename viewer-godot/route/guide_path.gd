@@ -28,6 +28,7 @@ const T_BLOCKS := 3                     # BLOQUES
 var data: Dictionary
 var pts: Array[Vector3] = []
 var cum: PackedFloat32Array = []        # cumulative distance along the route
+const VIEWER_WALK_MS := 2.2  # velocidad a pie del visor (main.gd); el ETA del planificador modela el traje EVA (~0.7 m/s)
 var eta: PackedFloat32Array = []
 var slope: PackedFloat32Array = []
 var terrain: PackedInt32Array = []
@@ -305,7 +306,7 @@ func update_player(player_pos: Vector3, head_basis: Basis, head_pos := Vector3.I
 		if wi >= i and cum[wi] - s_here < 10.0:
 			warn = "%s (en %.0f m)" % [w["msg"], maxf(cum[wi] - s_here, 0.0)]
 			break
-	_goal_label.text = "%s  %.0f m · %s" % [goal_name if goal_name != "" else "META", remaining, _fmt_time(eta_left)]
+	_goal_label.text = "%s  %.0f m · %s (visor %s)" % [goal_name if goal_name != "" else "META", remaining, _fmt_time(eta_left), _fmt_time(remaining / VIEWER_WALK_MS)]
 	_state = {"index": i, "off_route_m": off, "remaining_m": remaining, "eta_s": eta_left,
 		"slope_here": slope[i], "terrain_here": str(data["terrain_names"].get(str(terrain[i]), "?")), "terrain_code": terrain[i], "warning": warn,
 		"arrived": remaining < 1.5}
@@ -320,7 +321,7 @@ func hud_line() -> String:
 		return ""
 	if _state["arrived"]:
 		return "\nRUTA: ¡llegaste a la meta!"
-	var s := "\nRUTA (%s): faltan %.0f m · %s" % [condition, _state["remaining_m"], _fmt_time(_state["eta_s"])]
+	var s := "\nRUTA (%s): faltan %.0f m · traje EVA %s · a pie en visor %s" % [condition, _state["remaining_m"], _fmt_time(_state["eta_s"]), _fmt_time(_state["remaining_m"] / VIEWER_WALK_MS)]
 	if hud_terrain:
 		s += " · terreno: %s" % _state["terrain_here"]
 	if _state["off_route_m"] > off_route_warn:
