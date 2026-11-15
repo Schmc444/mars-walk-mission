@@ -218,7 +218,8 @@ func _intentar_armar() -> void:
 	# , que va en la MISMA malla que el tubo (misma posicion, sin desajuste).
 	var margen := float(tr["margen_recorte_mm"]) * 0.001
 	rec_a_m = _forma(a_s, b_s, d_in, R + margen)
-	rec_b = Vector4(Hp.x, Hp.z, 1.0, 0.0)
+	var parche_visible := bool(ab.get("visible", true))      # "visible": false en puntos.json -> sin parche ni recorte del suelo
+	rec_b = Vector4(Hp.x, Hp.z, 1.0 if parche_visible else 0.0, 0.0)
 	rec_b_m = _forma(a_p, b_p, n_p, pr)
 	# ---- tubo del hueco ----
 	var sh := load("res://layers/puntos_interes/tubo.gdshader") as Shader
@@ -238,7 +239,8 @@ func _intentar_armar() -> void:
 	pm.set_shader_parameter("prof_total", pd)
 	pm.set_shader_parameter("color_arriba", _col(tr["color_parche_arriba"]))
 	pm.set_shader_parameter("color_fondo", _col(tr["color_parche_fondo"]))
-	_cilindro(pr, pd + EXTRA, rel_p - n_p * ((pd - EXTRA) * 0.5), -n_p, pm, n_p, rel_p, pd)
+	if parche_visible:
+		_cilindro(pr, pd + EXTRA, rel_p - n_p * ((pd - EXTRA) * 0.5), -n_p, pm, n_p, rel_p, pd)
 	# ---- cara del corte (coordenadas locales: q = q0 + B * vertice, todo relativo al hueco) ----
 	var cm := ShaderMaterial.new()
 	cm.shader = load("res://layers/puntos_interes/cara.gdshader") as Shader
@@ -427,23 +429,24 @@ func _anillo(sep: float, opaco: float) -> Dictionary:
 		var rin := 1.0 / sqrt(q.x * c * c + 2.0 * q.y * c * s + q.z * s * s)    # radio de la elipse en esa direccion (en xz)
 		var rop := rin * (R + opaco) / R                                        # fin de la zona opaca
 		var ro := maxf(ro_base * (1.0 + irr * n2.get_noise_2dv(e * 2.0)), rop * 1.6)
-		var rm := rop + (ro - rop) * 0.5
-		var rs := [rin, rop, rm, ro]
-		var al := [1.0, 1.0, 0.8, 0.0]
-		for k in 4:
+		# difuminado suave hacia fuera (opaco y claro junto a la boca; alfa y tono bajan poco a poco hasta fundirse con el suelo)
+		var rs := [rin, rop, rop + (ro - rop) * 0.25, rop + (ro - rop) * 0.5, rop + (ro - rop) * 0.75, ro]
+		var al := [1.0, 1.0, 0.85, 0.6, 0.3, 0.0]
+		var tono := [1.0, 1.0, 0.97, 0.93, 0.9, 0.88]
+		for k in 6:
 			var r: float = rs[k]
 			var u: float = pm_off.x + c * r
 			var v: float = pm_off.y + s * r
 			verts.append(Vector3(u, a_s * u + b_s * v + sep / n_s.y, v))
 			norms.append(n_s)
-			cols.append(Color(1, 1, 1, al[k]))
+			cols.append(Color(tono[k], tono[k], tono[k], al[k]))
 	for i in N:
 		var j := (i + 1) % N
-		for k in 3:
-			var p0 := 4 * i + k
-			var p1 := 4 * i + k + 1
-			var p2 := 4 * j + k
-			var p3 := 4 * j + k + 1
+		for k in 5:
+			var p0 := 6 * i + k
+			var p1 := 6 * i + k + 1
+			var p2 := 6 * j + k
+			var p3 := 6 * j + k + 1
 			idx.append(p0)
 			idx.append(p1)
 			idx.append(p2)
@@ -553,5 +556,5 @@ func _imprimir(h: Dictionary, hp: Dictionary, sep: float) -> void:
 	print("hueco: angulo entre el eje del taladro y la VERTICAL = %.2f deg; entre el eje y la NORMAL del suelo = %.2f deg" % [rad_to_deg(hv), rad_to_deg(acos(clampf(cos_t, 0.0, 1.0)))])
 	print("hueco: entrada sobre el suelo inclinado: semieje menor = %.2f mm, semieje mayor = %.2f mm (en el plano del suelo); proyectada en xz: %.2f x %.2f mm" % [R * 1000.0, R / cos_t * 1000.0, sb * 1000.0, sa * 1000.0])
 	print("hueco: profundidad a lo largo del eje = %.1f mm; vertical = %.1f mm; desplazamiento horizontal del fondo = %.1f mm" % [prof * 1000.0, prof * cos(hv) * 1000.0, prof * sin(hv) * 1000.0])
-	print("hueco: parche: diametro = %.1f mm, profundidad = %.1f mm (SUPUESTO), centro a %s m del hueco (este, sur)" % [float(P["abrasion"]["diametro_mm"]), float(P["abrasion"]["profundidad_mm"]), str(P["abrasion"]["pos_m"])])
+	print("hueco: parche: diametro = %.1f mm, profundidad = %.1f mm (SUPUESTO), centro a %s m del hueco (este, sur)%s" % [float(P["abrasion"]["diametro_mm"]), float(P["abrasion"]["profundidad_mm"]), str(P["abrasion"]["pos_m"]), "" if bool(P["abrasion"].get("visible", true)) else "  [OCULTO: visible=false]"])
 	print("hueco: separacion de las piezas sobre el plano = %.1f mm (anti z-fighting). Colores planos = SUPUESTO." % (sep * 1000.0))

@@ -5,7 +5,12 @@
     "lat": 18.49186664,
     "texto": "Rock core M2020-1088-27, Bunsen Peak. Sol 1088 (12-mar-2024). Elevacion -2382.43 m.",
     "pin_desfase_m": [0.3, 0.3],
-    "pin_radio_m": 0.02,
+    "pin_radio_m": 0.035,
+    "etiqueta": "Comet Geyser (Sample 24)",
+    "pin_texto_escala": 0.2,
+    "pin_color": [1.0, 0.1, 0.1],
+    "pin_alto_m": 10.0,
+    "pin_bola_factor": 3.0,
     "perforacion": {
       "elevacion_m": -2382.434036,
       "diametro_mm": 13.0,
@@ -21,6 +26,7 @@
         "color": [0.82, 0.80, 0.77]
       },
       "abrasion": {
+        "visible": false,
         "diametro_mm": 50.0,
         "profundidad_mm": 7.0,
         "pos_m": [0.20, 0.0],
