@@ -406,6 +406,8 @@ func _finish_request() -> void:
 # ------------------------------------------------------------------ terreno bajo el jugador
 var _terrain_n_req := 0
 var _terrain_prefix := ""
+var _terrain_retry_ms := 0               # tras un fallo del planificador, no reintentar antes de esto
+var _terrain_prev := ""                  # ventana anterior (world): se borra al cargar la nueva
 
 
 func _load_terrain_map() -> void:
@@ -437,7 +439,7 @@ func _read_terrain(prefix: String) -> bool:
 
 func _ensure_terrain_window(p: Vector3) -> void:
 	## world: pide (asíncrono) una ventana de clases de ~400 m centrada en el jugador cuando no hay una o se acerca al borde.
-	if _terrain_pid > 0:
+	if _terrain_pid > 0 or Time.get_ticks_msec() < _terrain_retry_ms:
 		return
 	if not terrain_cls.is_empty():
 		var x0 := float(terrain_meta["x0"])
@@ -448,7 +450,12 @@ func _ensure_terrain_window(p: Vector3) -> void:
 			return
 	_terrain_n_req += 1
 	_terrain_prefix = _out_dir.path_join("terreno_world_%d" % _terrain_n_req)
+	DirAccess.remove_absolute(_terrain_prefix + ".u8")       # restos de una sesion anterior: si python falla no se leen como nuevos
+	DirAccess.remove_absolute(_terrain_prefix + ".json")
 	_terrain_pid = OS.create_process(_py, [_script, scene_dir, "--export-terrain", _terrain_prefix, "--around", str(p.x), str(p.z), "--radius", "200"])
+	if _terrain_pid <= 0:                # no se pudo lanzar python: antes se reintentaba en CADA cuadro
+		_terrain_pid = -1
+		_terrain_retry_ms = Time.get_ticks_msec() + 10000
 
 
 func terrain_code_at(x: float, z: float) -> int:
@@ -477,9 +484,18 @@ func terrain_name_at(x: float, z: float) -> String:
 func tick(player_pos: Vector3, head_basis: Basis, delta: float) -> void:
 	if _terrain_pid > 0 and not OS.is_process_running(_terrain_pid):
 		_terrain_pid = -1
-		if not _read_terrain(_terrain_prefix) and not world_mode:
+		if _read_terrain(_terrain_prefix):
+			if world_mode and _terrain_prev != "" and _terrain_prev != _terrain_prefix:
+				DirAccess.remove_absolute(_terrain_prev + ".u8")      # antes quedaba un .u8 (~160 KB) por ventana en user://route
+				DirAccess.remove_absolute(_terrain_prev + ".json")
+			_terrain_prev = _terrain_prefix
+		elif world_mode:
+			_terrain_retry_ms = Time.get_ticks_msec() + 10000   # fallo (fuera de los tiles, sin numpy...): antes se relanzaba en seguida
+		else:
 			_load_terrain_map()
-	if world_mode:
+	# La ventana de clases solo alimenta la linea "Terreno:" del HUD 2D, que no se ve dentro del visor: en VR no se lanza
+	# el planificador (python + numpy) cada ~140 m de recorrido.
+	if world_mode and not core.in_xr:
 		_ensure_terrain_window(player_pos)
 	if _busy_pid > 0 and not OS.is_process_running(_busy_pid):
 		_finish_request()
