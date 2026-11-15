@@ -8,6 +8,7 @@ config/features=PackedStringArray("4.7", "Mobile")
 [autoload]
 
 AmbientAudio="*res://audio/ambient_audio.gd"
+RoverSound="*res://audio/rover_sound.gd"
 
 [rendering]
 renderer/rendering_method="mobile"
