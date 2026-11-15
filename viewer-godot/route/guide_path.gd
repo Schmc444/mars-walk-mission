@@ -199,6 +199,9 @@ func _build_goal() -> void:
 	_goal_label.no_depth_test = true
 	_goal_label.position = g + Vector3.UP * 6.5
 	add_child(_goal_label)
+	if "--sin-pines" in OS.get_cmdline_user_args():
+		_goal_mesh.visible = false
+		_goal_label.visible = false
 
 
 func _build_arrow() -> void:

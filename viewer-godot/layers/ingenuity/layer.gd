@@ -30,6 +30,7 @@ func setup(w: WorldStreamer, c: Node) -> void:
 	pz = xz.y
 	pin = _make_pin(d.get("nombre", "Ingenuity"), COLOR)
 	add_child(pin)
+	pin.visible = not ("--sin-pines" in OS.get_cmdline_user_args())
 	heli = _make_heli()
 	add_child(heli)
 	print("ingenuity: x=", snappedf(px, 0.1), " z=", snappedf(pz, 0.1))

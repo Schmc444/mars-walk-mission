@@ -33,6 +33,7 @@ uniform int n_remolinos = 0;
 uniform vec4 remolinos[16];                                // x, z, radio, alto
 uniform float calor_sol = 35.0;                            // K que gana una superficie de frente al sol alto
 uniform float calor_brillo = 18.0;                        // K de mas/menos segun el brillo de la escena
+uniform float sombreado = 0.55;                           // 0..1: cuanto relieve/imagen satelital se ve bajo el falso color
 uniform float detalle = 0.12;                             // vistas 1-4: relieve visible (del brillo de la escena)
 
 // Valor del mapa en uv para las vistas 1-4, "orientado": mas alto = mas de ese parametro.
@@ -138,6 +139,16 @@ void fragment() {
 			}
 		}
 	}
-	ALBEDO = sin_tonemap(paleta(t));
+	vec3 col = paleta(t);
+	if (!cielo) {
+		// relieve: normal de la superficie a partir de la profundidad (alcanza las montanas lejanas) + brillo de la escena (imagen satelital y sombras)
+		vec3 ng = normalize(cross(dFdx(wp), dFdy(wp)));
+		if (ng.y < 0.0) ng = -ng;
+		float luz = clamp(dot(ng, normalize(sol_vec)), 0.0, 1.0);
+		float relieve = mix(0.55, 1.35, luz);
+		float imagen = clamp(brillo / 0.5, 0.45, 1.5);
+		col *= mix(vec3(1.0), vec3(relieve * imagen), sombreado);
+	}
+	ALBEDO = sin_tonemap(clamp(col, 0.0, 1.0));
 	ALPHA = 1.0;
 }

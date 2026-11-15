@@ -30,6 +30,7 @@ func setup(w: WorldStreamer, c: Node) -> void:
 			col_pin = Color(float(p["pin_color"][0]), float(p["pin_color"][1]), float(p["pin_color"][2]))
 		var pin := _make_pin(p.get("nombre", "?"), col_pin, float(p.get("pin_radio_m", 0.15)), float(p.get("pin_bola_factor", 1.0 / 0.15)), str(p.get("etiqueta", p.get("nombre", "?"))), float(p.get("pin_texto_escala", 1.0)), float(p.get("pin_alto_m", ALTO_PIN)))
 		add_child(pin)
+		pin.visible = not ("--sin-pines" in OS.get_cmdline_user_args())
 		var pin_off: Array = p.get("pin_desfase_m", [0.0, 0.0])     # [este, sur] m: aparta el poste para que no tape lo que hay en el punto
 		items.append([pin, xz.x + float(pin_off[0]), xz.y + float(pin_off[1])])
 		if p.has("perforacion"):
