@@ -660,7 +660,13 @@ func _setup_player() -> void:
 		if name == "by_button":
 			_toggle_ride()
 		elif name == "ax_button":
-			_toggle_hazard())
+			a_down_ms = Time.get_ticks_msec()
+			a_reset_done = false)
+	right.button_released.connect(func(name: String):
+		if name == "ax_button" and a_down_ms > 0:
+			a_down_ms = 0
+			if not a_reset_done:
+				_toggle_hazard())
 
 
 func _setup_xr() -> void:
@@ -686,11 +692,15 @@ func _setup_xr() -> void:
 var overlay := 0   # 0 normal, 1 pendiente, 2.. vistas de falso color de la capa atmosfera
 
 
-func _toggle_hazard() -> void:
+var a_down_ms := 0
+var a_reset_done := false
+
+
+func _toggle_hazard(to := -1) -> void:
 	## Cicla: normal -> pendiente -> vistas de atmosfera (calor, radiacion, O2, presion, polvo) -> normal.
 	var atm = get_node_or_null("capa_atmosfera")
 	var has_atm: bool = atm != null and atm.has_method("alternar_vista")
-	overlay = (overlay + 1) % (7 if has_atm else 2)
+	overlay = (overlay + 1) % (7 if has_atm else 2) if to < 0 else to
 	hazard_on = overlay == 1
 	if world_mode:
 		W.set_hazard(hazard_on)
@@ -723,6 +733,9 @@ func _unhandled_input(e: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	if a_down_ms > 0 and not a_reset_done and Time.get_ticks_msec() - a_down_ms >= 3000:
+		a_reset_done = true
+		_toggle_hazard(0)
 	if world_mode:
 		_process_world(delta)
 		return
