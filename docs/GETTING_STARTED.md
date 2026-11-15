@@ -5,8 +5,8 @@ Necesitas: **Git**, **Python 3.10+** y **Godot 4.7.2** (versión estándar, no .
 ## 1. Instalar
 
 ```bash
-git clone https://github.com/Schmc444/mars-route-walker.git
-cd mars-route-walker
+git clone https://github.com/Schmc444/mars-walk-mission.git
+cd mars-walk-mission
 git checkout foundation        # rama con el generador `marswalk`
 
 python3 -m venv .venv

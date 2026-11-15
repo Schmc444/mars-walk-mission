@@ -1,6 +1,6 @@
 extends Node3D
 class_name GuidePath
-## VR walking guide for Mars Route Walker.
+## VR walking guide for Mars Walk Mission.
 ## Reads guide_path.json (written by mars_route.py) and draws:
 ##   - chevrons on the ground every `spacing` m, coloured by risk (green ok, amber slope, red rocky/steep)
 ##   - a beacon + label at the goal

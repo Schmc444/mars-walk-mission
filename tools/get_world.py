@@ -6,7 +6,7 @@ Uso: python tools/get_world.py [--dest world] [--tag world-v1]
 """
 import argparse, hashlib, json, os, shutil, subprocess, sys, tarfile, urllib.request
 
-REPO = "Schmc444/mars-route-walker"
+REPO = "Schmc444/mars-walk-mission"
 SHA256 = "5ab6020fbf090132a38752e1a20e414dac0319fbfbe9e55501eec9acaedff591"
 
 

@@ -23,8 +23,8 @@ El **núcleo** (mapa, carga del mundo, movimiento del rover, video) lo hacen San
 ## Paso a paso con Git (terminal)
 
 ```bash
-git clone https://github.com/Schmc444/mars-route-walker.git
-cd mars-route-walker
+git clone https://github.com/Schmc444/mars-walk-mission.git
+cd mars-walk-mission
 git checkout foundation
 git checkout -b capa/minimapa            # tu rama (cambia el nombre)
 

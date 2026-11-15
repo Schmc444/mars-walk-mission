@@ -97,7 +97,7 @@ Pendiente: el bundle aún no se ha probado de punta a punta con las escenas nuev
 ## 8. Cómo entra cada quien con su capa
 
 ```bash
-git clone https://github.com/Schmc444/mars-route-walker.git && cd mars-route-walker
+git clone https://github.com/Schmc444/mars-walk-mission.git && cd mars-walk-mission
 git checkout foundation
 python3 -m venv .venv && source .venv/bin/activate && pip install -e .
 ```

@@ -1,8 +1,8 @@
-# Mars Route Walker
+# Mars Walk Mission
 
 **NASA Space Apps Challenge 2026 · *Interplanetary Survival Guide: Martian Map***
 
-Plan a route on Mars, then walk it. Mars Route Walker turns real orbital data around the Perseverance rover's
+Plan a route on Mars, then walk it. Mars Walk Mission turns real orbital data around the Perseverance rover's
 traverse (Jezero Crater) into a first-person scene you can explore on a desktop or in VR (OpenXR, tested on
 Steam Frame). You pick a destination, the planner finds the safest path over the terrain, and you follow it on foot.
 

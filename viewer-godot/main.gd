@@ -1,5 +1,5 @@
 extends Node3D
-# Mars Route Walker viewer: loads a patch folder (heightmap.f32, ortho.png, route_local.json, meta.json).
+# Mars Walk Mission viewer: loads a patch folder (heightmap.f32, ortho.png, route_local.json, meta.json).
 
 var PATCH := "res://patch/"
 const STEP := 0.5
@@ -254,7 +254,7 @@ func _process_world(delta: float) -> void:
 	if route_ui:
 		route_ui.tick(p, cam.global_basis, delta)
 	if _hud_due(delta):
-		hud.text = "Mars Route Walker · sol %d · %s · %.0f m de ruta · pendiente %.1f° · H: peligro %s · G: bajar/subir del rover\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm" % [W.route_sol_at(ride_s), "en el rover" if riding else "a pie", ride_s, W.slope_deg(p.x, p.z), "ON" if hazard_on else "off"] \
+		hud.text = "Mars Walk Mission · sol %d · %s · %.0f m de ruta · pendiente %.1f° · H: peligro %s · G: bajar/subir del rover\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm" % [W.route_sol_at(ride_s), "en el rover" if riding else "a pie", ride_s, W.slope_deg(p.x, p.z), "ON" if hazard_on else "off"] \
 			+ (route_ui.hud_lines(p) if route_ui else "")
 
 
@@ -818,7 +818,7 @@ func _process(delta: float) -> void:
 	if route_ui:
 		route_ui.tick(p, cam.global_basis, delta)
 	if _hud_due(delta):
-		hud.text = "Mars Route Walker · %s · pendiente aquí %.1f° · H: capa de peligro %s\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm · rocas SINTÉTICAS (ilustrativas)" % [str(scene.get("label", "")), slope_deg(p.x, p.z), "ON" if hazard_on else "off"] \
+		hud.text = "Mars Walk Mission · %s · pendiente aquí %.1f° · H: capa de peligro %s\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm · rocas SINTÉTICAS (ilustrativas)" % [str(scene.get("label", "")), slope_deg(p.x, p.z), "ON" if hazard_on else "off"] \
 			+ (route_ui.hud_lines(p) if route_ui else "")
 
 
