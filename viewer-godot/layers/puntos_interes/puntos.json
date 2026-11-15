@@ -4,39 +4,243 @@
     "lon": 77.3272192,
     "lat": 18.49186664,
     "texto": "Rock core M2020-1088-27, Bunsen Peak. Sol 1088 (12-mar-2024). Elevacion -2382.43 m.",
-    "pin_desfase_m": [0.3, 0.3],
+    "pin_desfase_m": [
+      0.3,
+      0.3
+    ],
     "pin_radio_m": 0.035,
     "etiqueta": "Comet Geyser (Sample 24)",
     "pin_texto_escala": 0.2,
-    "pin_color": [1.0, 0.1, 0.1],
+    "pin_color": [
+      1.0,
+      0.1,
+      0.1
+    ],
     "pin_alto_m": 10.0,
     "pin_bola_factor": 3.0,
+    "roca": {
+      "AVISO": "RECREACION APROXIMADA de la roca Bunsen Peak, UNA SOLA malla continua. NO es un escaneo. Lo 'estimado' no sale de datos.",
+      "mostrar_hueco": false,
+      "MOSTRAR_HUECO_NOTA": "false = solo la roca (el hueco aprobado sigue oculto); true = se muestra el hueco",
+      "ancho_m": 1.7,
+      "FUENTE_ANCHO": "1.7 m: NASA/JPL (comunicado de abril de 2024)",
+      "largo_m": 1.0,
+      "largo_estimado": true,
+      "alto_lado_alto_m": 0.4,
+      "alto_estimado": true,
+      "ALTO_NOTA": "referencia (estimada): con la losa inclinada 29.45 deg y 1.0 m de largo, el lado alto queda ~0.5 m sobre el bajo; elevar_hueco_m se calcula solo para que el borde mas bajo de la losa quede a ras del suelo",
+      "elevar_hueco_m": null,
+      "ELEVAR_NOTA": "null = automatico (borde mas bajo a ras del suelo). Un numero (m) lo fija. PROVISIONAL: la posicion final del hueco la decide Luis al aprobar la roca",
+      "enterrado_m": 0.1,
+      "hueco_desde_izquierda": 0.45,
+      "hueco_desde_arriba": 0.333,
+      "hueco_estimado": true,
+      "plano_radio_m": 0.075,
+      "plano_transicion_m": 0.2,
+      "ondulacion_m": 0.025,
+      "ondulacion_frecuencia": 1.3,
+      "radio_borde_m": 0.06,
+      "pared_ancho_m": 0.05,
+      "malla_cm": 1.5,
+      "paso_max_m": 0.25,
+      "textura": "refs/textura_losa.png",
+      "textura_mosaico_m": [
+        1.5,
+        1.2
+      ],
+      "tono": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "TEXTURA_NOTA": "recorte de refs/ref_panel_c.png (zona lisa de la losa, sin rotulos, flechas, parche ni hueco), en mosaico espejo sin costura, proyectado desde arriba; los costados repiten la misma textura estirada hacia abajo",
+      "contorno_nota": "contorno normalizado [x, y] (0..1; y=1 es el lado alto de la losa) de la linea roja de refs/ref_panel_c_contorno.png (reducido) mas un cierre propio abajo, porque la linea queda abierta; se estira a ancho_m x largo_m",
+      "contorno": [
+        [
+          0.006,
+          0.4984
+        ],
+        [
+          0.0571,
+          0.5872
+        ],
+        [
+          0.1257,
+          0.6524
+        ],
+        [
+          0.1899,
+          0.6968
+        ],
+        [
+          0.2399,
+          0.7348
+        ],
+        [
+          0.2854,
+          0.7647
+        ],
+        [
+          0.3246,
+          0.8021
+        ],
+        [
+          0.3638,
+          0.8369
+        ],
+        [
+          0.4063,
+          0.8684
+        ],
+        [
+          0.4519,
+          0.9112
+        ],
+        [
+          0.506,
+          0.9572
+        ],
+        [
+          0.5687,
+          0.9925
+        ],
+        [
+          0.6351,
+          0.9872
+        ],
+        [
+          0.7041,
+          0.9727
+        ],
+        [
+          0.772,
+          0.9374
+        ],
+        [
+          0.8451,
+          0.8936
+        ],
+        [
+          0.9138,
+          0.8273
+        ],
+        [
+          0.941,
+          0.7193
+        ],
+        [
+          0.9507,
+          0.6053
+        ],
+        [
+          0.9955,
+          0.5037
+        ],
+        [
+          0.9728,
+          0.3877
+        ],
+        [
+          0.9862,
+          0.2701
+        ],
+        [
+          0.9545,
+          0.1604
+        ],
+        [
+          0.941,
+          0.0856
+        ],
+        [
+          0.8955,
+          0.0374
+        ],
+        [
+          0.7612,
+          0.0107
+        ],
+        [
+          0.5821,
+          0.0267
+        ],
+        [
+          0.3955,
+          0.0
+        ],
+        [
+          0.2313,
+          0.0909
+        ],
+        [
+          0.1119,
+          0.2299
+        ],
+        [
+          0.0373,
+          0.3797
+        ]
+      ],
+      "detalle": {
+        "imagen": "refs/detalle_cg2.png",
+        "intensidad": 0.3,
+        "capa_a": {
+          "escala_m": 0.04,
+          "rotacion_deg": 20.0,
+          "desplazamiento": [
+            0.0,
+            0.0
+          ]
+        },
+        "capa_b": {
+          "escala_m": 0.12,
+          "rotacion_deg": 67.0,
+          "desplazamiento": [
+            0.37,
+            0.61
+          ]
+        },
+        "triplanar_base": 1.0,
+        "base_mosaico_m": 1.5,
+        "DETALLE_NOTA": "capa de detalle encima del material (multiplicacion suave). Fuente: img/comet_geyser_sol1088_watson_rmi.png (WATSON sol 1088, 122 um/px en esta copia reducida); recorte cuadrado de 212 px (~26 mm) de la foto de la roca, sin texto, barra de escala, circulo RMI ni bordes negros, con las marcas turquesa y la mancha central rellenadas con roca vecina. escala_m = metros por repeticion (en espejo); rotacion_deg y desplazamiento (fraccion de la imagen) distintos por capa para que no se note el patron; intensidad 0 = apagada; triplanar_base 1 = costados en triplanar, 0 = como antes."
+      }
+    },
     "perforacion": {
       "elevacion_m": -2382.434036,
       "diametro_mm": 13.0,
       "profundidad_mm": 58.0,
       "hade_deg": 29.45,
-      "azimuth_deg": 75.20,
+      "azimuth_deg": 75.2,
       "hade_desde_horizontal": false,
       "azimuth_es_hacia_afuera": false,
       "polvo": {
         "radio_externo_mm": 35.0,
         "irregularidad": 0.35,
         "semilla": 7,
-        "color": [0.82, 0.80, 0.77]
+        "color": [
+          0.82,
+          0.8,
+          0.77
+        ]
       },
       "abrasion": {
         "visible": false,
         "diametro_mm": 50.0,
         "profundidad_mm": 7.0,
-        "pos_m": [0.20, 0.0],
+        "pos_m": [
+          0.2,
+          0.0
+        ],
         "SUPUESTO": "profundidad 7 mm = valor provisional (el dato pegado dice 'Castle Geyser, 7 mm' pero no se sabe si es la profundidad de la abrasion); pos_m = [este, sur] relativa al hueco, estimada a ojo de la foto, SIN verificar"
       },
       "prueba": {
         "camara_cerca_cm": 20.0,
         "camara_general_cm": 45.0,
         "regla_largo_cm": 10.0,
-        "regla_pos_m": [-0.05, 0.075]
+        "regla_pos_m": [
+          -0.05,
+          0.075
+        ]
       },
       "terreno": {
         "separacion_mm": 0.6,
@@ -44,11 +248,31 @@
         "opaco_mm": 6.0,
         "corte_radio_m": 0.14,
         "SUPUESTO_colores": "colores planos de las piezas (no se leen del terreno, que es procedural): polvo, interior del hueco, parche y cara del corte",
-        "color_interior_arriba": [0.30, 0.20, 0.14],
-        "color_interior_fondo": [0.05, 0.035, 0.03],
-        "color_parche_arriba": [0.58, 0.36, 0.25],
-        "color_parche_fondo": [0.42, 0.26, 0.18],
-        "color_corte": [0.62, 0.40, 0.28]
+        "color_interior_arriba": [
+          0.3,
+          0.2,
+          0.14
+        ],
+        "color_interior_fondo": [
+          0.05,
+          0.035,
+          0.03
+        ],
+        "color_parche_arriba": [
+          0.58,
+          0.36,
+          0.25
+        ],
+        "color_parche_fondo": [
+          0.42,
+          0.26,
+          0.18
+        ],
+        "color_corte": [
+          0.62,
+          0.4,
+          0.28
+        ]
       },
       "paredes": {
         "imagen": "img/pared_watson_sol1088.png",

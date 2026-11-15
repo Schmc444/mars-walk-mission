@@ -33,11 +33,20 @@ func setup(w: WorldStreamer, c: Node) -> void:
 		var pin_off: Array = p.get("pin_desfase_m", [0.0, 0.0])     # [este, sur] m: aparta el poste para que no tape lo que hay en el punto
 		items.append([pin, xz.x + float(pin_off[0]), xz.y + float(pin_off[1])])
 		if p.has("perforacion"):
-			var hc := Node3D.new()
-			hc.name = "hueco_muestra"
-			hc.set_script(load("res://layers/puntos_interes/hueco.gd"))
-			add_child(hc)
-			hc.setup(w, c, p["perforacion"], xz)
+			var con_hueco := true       # roca.mostrar_hueco = false: solo la roca (para validarla); el hueco vuelve cuando se apruebe
+			if p.has("roca") and not ("--sin-roca" in OS.get_cmdline_user_args()):
+				con_hueco = bool(p["roca"].get("mostrar_hueco", true))
+				var rc := Node3D.new()      # roca Bunsen Peak: nodo propio, separado del hueco
+				rc.name = "roca_bunsen_peak"
+				rc.set_script(load("res://layers/puntos_interes/roca.gd"))
+				add_child(rc)
+				rc.setup(w, c, p["roca"], xz, p["perforacion"])
+			if con_hueco:
+				var hc := Node3D.new()
+				hc.name = "hueco_muestra"
+				hc.set_script(load("res://layers/puntos_interes/hueco.gd"))
+				add_child(hc)
+				hc.setup(w, c, p["perforacion"], xz)
 		print("puntos_interes: ", p.get("nombre", "?"), " -> x=", snappedf(xz.x, 0.1), " z=", snappedf(xz.y, 0.1))
 
 
