@@ -1,0 +1,9 @@
+# archivos auxiliares de LaTeX (el PDF sí se sube)
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz

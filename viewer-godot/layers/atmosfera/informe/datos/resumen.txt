@@ -1,0 +1,5 @@
+Analisis tramo sol 1063 -> 1116 (sol de referencia para comparar caminos: 1089.5), hora local 8.48
+Grilla A*: 64 x 40 celdas de 10 m, 514 prohibidas por pendiente > 15 grados
+ruta_real: largo 477 m, J = 1091 (J/largo = 2.288), dosis caminando a 1.0 m/s = 0.00359 mSv, pO2 min 1.215 Pa, pendiente max 11.0 grados, desnivel 16.1 m
+ruta_recta: largo 320 m, J = 767 (J/largo = 2.401), dosis caminando a 1.0 m/s = 0.00240 mSv, pO2 min 1.217 Pa, pendiente max 18.0 grados, desnivel 13.5 m
+ruta_optima: largo 335 m, J = 752 (J/largo = 2.244), dosis caminando a 1.0 m/s = 0.00250 mSv, pO2 min 1.216 Pa, pendiente max 11.3 grados, desnivel 13.1 m
