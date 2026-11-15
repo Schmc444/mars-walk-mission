@@ -371,6 +371,7 @@ const VR_DIST_GRANDE := 0.85
 var panel_vr: MeshInstance3D
 var _ray: MeshInstance3D
 var _vr_apunta := false
+var _cursor := false
 var _vr_px := Vector2(-100, -100)
 var _vr_prev := Vector2.ZERO
 var _vr_drag := false
@@ -416,6 +417,28 @@ func _montar_en_mano() -> void:
 		core.right.button_released.connect(func(n: String):
 			if n == "trigger_click":
 				_vr_drag = false)
+
+
+func estado() -> Array:
+	var m := modo
+	var fr := Vector2(-1, -1)
+	if _vr_apunta:
+		fr = _vr_px / float(_tam)
+	var c: Vector2 = _centro[m]
+	return [grande, m, _pulido, snappedf(c.x, 0.1), snappedf(c.y, 0.1), snappedf(_esc[m] / _esc_fit[m], 0.001), snappedf(fr.x, 0.001), snappedf(fr.y, 0.001)]
+
+
+func aplicar(a: Array) -> void:
+	if bool(a[0]) != grande:
+		alternar()
+	modo = clampi(int(a[1]), 0, _rango.size() - 1)
+	_pulido = bool(a[2])
+	_centro[modo] = Vector2(a[3], a[4])
+	_esc[modo] = _esc_fit[modo] * float(a[5])
+	var fr := Vector2(a[6], a[7])
+	_cursor = fr.x >= 0.0
+	_mouse = fr * float(_tam) if _cursor else Vector2(-100, -100)
+	_vista_ok = false
 
 
 func apuntado() -> bool:
@@ -763,6 +786,9 @@ func _dibujar_grande() -> void:
 	# Longitud y latitud: del cursor si esta sobre el mapa, si no del rover.
 	var c_txt := ("Cursor  " + _fmt_lonlat(_px_a_mundo(_mouse))) if util.has_point(_mouse) else ("Rover  " + _fmt_lonlat(_pos))
 	lienzo.draw_string(f, Vector2(_tam - 400, _tam - 8), c_txt, HORIZONTAL_ALIGNMENT_RIGHT, 388, 14, Color(1, 1, 1, 0.9))
+	if (_vr_apunta or _cursor) and _mouse.x >= 0.0:
+		lienzo.draw_circle(_mouse, 9.0, Color(1.0, 0.9, 0.3, 0.35))
+		lienzo.draw_circle(_mouse, 4.0, Color(1.0, 0.9, 0.3, 1.0))
 	lienzo.draw_string(f, Vector2(_tam - 220, _tam - 48), "zoom ×%.1f" % (esc / _esc_fit[modo]), HORIZONTAL_ALIGNMENT_RIGHT, 204, 14, Color(1, 1, 1, 0.6))
 
 

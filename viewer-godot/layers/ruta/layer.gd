@@ -23,6 +23,7 @@ var rec_events: Array = []
 var rec_hud := -1
 var rec_menu := -2
 var rec_overlay := 0
+var rec_mapa: Array = []
 var rec_route := ""
 var rec_route_n := 0
 var play_events: Array = []
@@ -371,6 +372,7 @@ func _rec_toggle() -> void:
 		rec_overlay = int(core.get("overlay")) if core.get("overlay") != null else 0
 		rec_hud = -1
 		rec_menu = -2
+		rec_mapa = []
 		rec_events.append({"t": 0.0, "overlay": rec_overlay})
 		rec_route = ""
 		rec_route_n = 0
@@ -418,6 +420,12 @@ func _rec_events_poll() -> void:
 	if hv != null and int(hv) != rec_hud:
 		rec_hud = int(hv)
 		rec_events.append({"t": t, "hud": bool(hv)})
+	var mm = core.get_node_or_null("capa_minimapa")
+	if mm != null and mm.has_method("estado") and mm.world != null and mm.world.is_ready():
+		var est: Array = mm.estado()
+		if est != rec_mapa:
+			rec_mapa = est
+			rec_events.append({"t": t, "mapa": est})
 	var ui = core.get("route_ui")
 	if ui == null or ui.get("guide") == null:
 		return
@@ -507,6 +515,10 @@ func _play_event(e: Dictionary) -> void:
 				vm._open()
 			elif not bool(e["menu"]) and vm.open:
 				vm.close()
+	if e.has("mapa"):
+		var mm = core.get_node_or_null("capa_minimapa")
+		if mm != null and mm.has_method("aplicar") and mm.world != null and mm.world.is_ready():
+			mm.aplicar(e["mapa"])
 	if e.has("overlay") and core.has_method("_toggle_hazard"):
 		core._toggle_hazard(int(e["overlay"]))
 	var ui = core.get("route_ui")
