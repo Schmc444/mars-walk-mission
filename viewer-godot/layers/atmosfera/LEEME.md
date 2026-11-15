@@ -26,6 +26,12 @@ Polvo: τ 0.65
 
 La línea de la vista activa va marcada con ▶ y en amarillo. Con el sonido encendido se agrega `Sonido: 880 Hz`.
 
+Última línea: `Hora: 20:04 · Batería: 52 %`. La hora es la del sistema (real, de la Tierra). Godot 4 no tiene función de batería,
+así que se lee del sistema donde corre la app: en un visor **standalone** (Android, p. ej. Quest: `BatteryManager`; Linux, p. ej.
+SteamOS: `/sys/class/power_supply`) es la batería de los lentes. Con el visor **conectado a la PC** (SteamVR / Link) Godot solo vería
+la de la PC, así que la batería no se muestra. `--atm-bateria-pc` la muestra igual para probar en una laptop (Windows, vía PowerShell).
+**No probado en un visor:** las ramas de Android y Linux están escritas pero no se han ejecutado en uno.
+
 Posición: en `layer.gd`, `PANEL_MARGEN_X` / `PANEL_MARGEN_Y` (pantalla, fracción de la ventana desde el borde derecho y de arriba)
 y `PANEL_VR_X`, `PANEL_VR_ARRIBA`, `PANEL_VR_DIST`, `PANEL_VR_GIRO` (VR, en metros y radianes). Subir los márgenes o bajar `PANEL_VR_X`
 lo acerca al centro de la vista.
@@ -75,7 +81,7 @@ Presión y temperatura cambian muy poco en 3 km (unos 10 Pa y 1-3 °C); por eso 
 `--atm-vista=calor|radiacion|oxigeno|presion|polvo` (empezar con esa vista) · `--atm-sonido` · `--atm-tramo=1063,1116` ·
 `--atm=polvo|radiacion|oxigeno|presion|temperatura` (empezar con esa neblina) ·
 `--atm-sol=316` (forzar un sol) · `--atm-hora=4` (forzar la hora local, 0-24; si no, sale del sol de la escena) ·
-`--atm-panel-3d` (ver el panel flotante como en VR, sin visor).
+`--atm-panel-3d` (ver el panel flotante como en VR, sin visor) · `--atm-bateria-pc` (mostrar la batería de la PC, para probar).
 
 La escena tiene un sol fijo (del núcleo). La capa lo lee para sacar la hora local aproximada (~08:30) y qué laderas reciben más sol.
 Con `--atm-hora` cambian los números y las vistas, pero la luz de la escena sigue igual.
