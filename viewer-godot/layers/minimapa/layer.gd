@@ -38,8 +38,6 @@ const C_RUTA := Color(0.86, 0.86, 0.88)        # gris claro
 const C_RUTA_HECHA := Color(0.55, 0.55, 0.58)  # ya recorrido
 const C_PUNTO := Color(1.0, 0.35, 0.12)
 const C_MARCA := Color(0.45, 0.85, 1.0)
-const INSET := 120.0                   # lado (px) de la vista de TODA la ruta que va en la esquina del mapa pequeno
-const INSET_PASO_M := 700.0            # largo de cada trazo/hueco de la linea punteada
 
 var world: WorldStreamer
 var core: Node
@@ -86,11 +84,6 @@ var _zoom_prueba := 0.0                # solo pruebas (--minimapa-zoom=N)
 var _cuadros := 0
 var _pos_dib := Vector2(1e9, 1e9)      # posicion y metraje con que se dibujo por ultima vez el mapa pequeno
 var _s_dib := -1e9
-var _gl_pts := PackedVector2Array()    # ruta completa decimada (cada INSET_PASO_M) para la vista general
-var _gl_s := PackedFloat32Array()
-var _gl_min := Vector2.ZERO
-var _gl_esc := 1.0
-var _gl_off := Vector2.ZERO
 
 
 func setup(w: WorldStreamer, c: Node) -> void:
@@ -571,52 +564,6 @@ func _dibujar() -> void:
 	lienzo.draw_rect(r, C_BORDE, false, 2.0)
 
 
-# Toda la ruta (de donde viene a donde va) en un recuadro de la esquina, con linea punteada, el rover y la marca del tramo.
-func _preparar_global() -> void:
-	var n: int = world.route_s.size()
-	if n < 2:
-		return
-	var ult := -1e9
-	for i in n:
-		var si: float = world.route_s[i]
-		if si - ult >= INSET_PASO_M or i == n - 1:
-			_gl_pts.append(world.route_xz[i])
-			_gl_s.append(si)
-			ult = si
-	var mn: Vector2 = _gl_pts[0]
-	var mx: Vector2 = _gl_pts[0]
-	for v in _gl_pts:
-		mn = Vector2(minf(mn.x, v.x), minf(mn.y, v.y))
-		mx = Vector2(maxf(mx.x, v.x), maxf(mx.y, v.y))
-	var ext := maxf(maxf(mx.x - mn.x, mx.y - mn.y), 1.0)
-	_gl_esc = (INSET - 16.0) / ext
-	_gl_min = mn
-	_gl_off = Vector2(4, 4) + Vector2(8, 8) + (Vector2(INSET - 16.0, INSET - 16.0) - (mx - mn) * _gl_esc) * 0.5
-
-
-func _gl_px(v: Vector2) -> Vector2:
-	return _gl_off + (v - _gl_min) * _gl_esc
-
-
-func _dibujar_inset() -> void:
-	if _gl_pts.is_empty():
-		_preparar_global()
-	if _gl_pts.size() < 2:
-		return
-	var rc := Rect2(4, 4, INSET, INSET)
-	lienzo.draw_rect(rc, Color(0, 0, 0, 0.55))
-	lienzo.draw_rect(rc, C_BORDE, false, 1.0)
-	var k := _gl_s.bsearch(_s_actual)
-	for i in range(0, _gl_pts.size() - 1, 2):
-		lienzo.draw_line(_gl_px(_gl_pts[i]), _gl_px(_gl_pts[i + 1]), C_RUTA_HECHA if i < k else C_RUTA, 1.6, true)
-	if TRAMOS[0].has("marca"):
-		var mk: Array = TRAMOS[0]["marca"]
-		lienzo.draw_circle(_gl_px(world.lonlat_to_world(float(mk[0]), float(mk[1]))), 2.6, C_MARCA)
-	lienzo.draw_circle(_gl_px(_pos), 3.4, Color(0, 0, 0, 0.8))
-	lienzo.draw_circle(_gl_px(_pos), 2.4, C_PUNTO)
-	lienzo.draw_string(ThemeDB.fallback_font, Vector2(8, INSET - 0), "%.0f km" % (world.route_length() / 1000.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.7))
-
-
 func _dibujar_chico() -> void:
 	if _pts.size() >= 2:
 		var px := PackedVector2Array()
@@ -624,7 +571,6 @@ func _dibujar_chico() -> void:
 			px.append((v - _min) * _escala)
 		_trazar(px, _s_pts, 3.0)
 		_punto(((_pos - _min) * _escala).clamp(Vector2(4, 4), Vector2(_tam - 4, _tam - 4)), 5.0)
-	_dibujar_inset()
 	lienzo.draw_string(ThemeDB.fallback_font, Vector2(6, _tam - 8), _fmt_lonlat(_pos), HORIZONTAL_ALIGNMENT_LEFT, _tam - 12, 12, Color(1, 1, 1, 0.8))
 
 
