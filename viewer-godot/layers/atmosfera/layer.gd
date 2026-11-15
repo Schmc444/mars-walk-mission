@@ -41,6 +41,7 @@ const DENSIDAD := [0.006, 0.005, 0.005, 0.0012, 0.0012]
 const N := 160                  # mapa de valores N x N alrededor del jugador
 const CELDA := 20.0             # m por casilla -> 3.2 km de lado
 const FILAS_POR_FRAME := 6
+const PRESUPUESTO_US := 2000      # tope de tiempo por cuadro para calcular el mapa de valores
 const RECENTRAR_M := 700.0
 const ANCHO_PANEL := 250
 const LETRA := 16
@@ -303,6 +304,7 @@ func alternar_panel() -> void:
 	ui.visible = ver_panel
 	if panel_3d:
 		panel_3d.visible = ver_panel
+	_t_ui = 0.0                          # al volver a mostrarlo, refrescar ya (mientras esta oculto no se actualiza)
 
 
 # ---------------------------------------------------------------- cada frame
@@ -402,10 +404,16 @@ func _generar_campo(p: Vector3) -> void:
 			gen_fase = 0
 		return
 	var fin := mini(gen_fila + FILAS_POR_FRAME, N)
+	# Hasta FILAS_POR_FRAME filas, pero sin pasar de PRESUPUESTO_US por cuadro (al menos una fila): 6 filas de la fase 1
+	# costaban ~4 ms (picos de 15 ms) en un x86 de escritorio, varias veces eso en el arm64 del Frame -> tirones al recentrar.
+	var t0 := Time.get_ticks_usec()
 	if gen_fase == 0:
 		for j in range(gen_fila, fin):
 			for i in N:
 				gen_h[j * N + i] = world.height_at(gen_origen.x + (i + 0.5) * CELDA, gen_origen.y + (j + 0.5) * CELDA)
+			if Time.get_ticks_usec() - t0 > PRESUPUESTO_US:
+				fin = j + 1
+				break
 	else:
 		var tau_f := m.tau_fondo(gen_sol)
 		for j in range(gen_fila, fin):
@@ -420,6 +428,9 @@ func _generar_campo(p: Vector3) -> void:
 				gen_img.set_pixel(i, j, Color(tp, tr, to, h))
 				var ins := m.insolacion_rel((_hg(i + 1, j) - _hg(i - 1, j)) / (2.0 * CELDA), (_hg(i, j + 1) - _hg(i, j - 1)) / (2.0 * CELDA), sol_vec)
 				gen2_img.set_pixel(i, j, Color(m.presion(gen_sol, h), m.temperatura(gen_sol, hora, tau_f, ins, hond, x, z), 0.0))
+			if Time.get_ticks_usec() - t0 > PRESUPUESTO_US:
+				fin = j + 1
+				break
 	gen_fila = fin
 	if gen_fila >= N:
 		if gen_fase == 0:
@@ -677,7 +688,7 @@ func _crear_panel() -> void:
 		vista_vr = SubViewport.new()
 		vista_vr.transparent_bg = true
 		vista_vr.disable_3d = true
-		vista_vr.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		vista_vr.render_target_update_mode = SubViewport.UPDATE_ONCE   # se re-renderiza al cambiar el texto (_actualizar_panel, 5 Hz)
 		vista_vr.size = Vector2i(ANCHO_PANEL, 200)
 		add_child(vista_vr)
 		vista_vr.add_child(ui)
@@ -757,3 +768,4 @@ func _actualizar_panel() -> void:
 	ui.custom_minimum_size.x = ancho_fijo
 	if en_3d:
 		_ajustar_panel_3d.call_deferred()
+		vista_vr.render_target_update_mode = SubViewport.UPDATE_ONCE
