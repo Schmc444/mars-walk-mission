@@ -82,6 +82,8 @@ var _s_actual := 0.0
 var _t_busca := 0.0
 var _zoom_prueba := 0.0                # solo pruebas (--minimapa-zoom=N)
 var _cuadros := 0
+var _pos_dib := Vector2(1e9, 1e9)      # posicion y metraje con que se dibujo por ultima vez el mapa pequeno
+var _s_dib := -1e9
 
 
 func setup(w: WorldStreamer, c: Node) -> void:
@@ -92,7 +94,7 @@ func setup(w: WorldStreamer, c: Node) -> void:
 	vp.size = Vector2i(_tam, _tam)
 	vp.transparent_bg = true
 	vp.disable_3d = true
-	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE    # se re-renderiza solo cuando cambia algo (_redibujar)
 	add_child(vp)
 
 	lienzo = Control.new()
@@ -376,6 +378,8 @@ func _montar_en_mano() -> void:
 func poner_visible_vr(v: bool) -> void:
 	if panel_vr:
 		panel_vr.visible = v
+		if v and world != null and world.is_ready():
+			_actualizar(true)
 
 
 # Zona muerta + filtro de primer orden sobre el giro de la cabeza; la posicion sigue a la cabeza exacta.
@@ -408,7 +412,7 @@ func alternar() -> void:
 		for m in _rango.size():
 			_encuadrar(m)
 	_arrastre = false
-	lienzo.queue_redraw()
+	_redibujar()
 
 
 func _nombre_modo(i: int) -> String:
@@ -476,9 +480,11 @@ func _unhandled_input(e: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if world == null or not world.is_ready():
 		return
+	if panel_vr and not panel_vr.visible:
+		return                             # VR con el panel oculto (agarre derecho): nada que actualizar
 	_t_busca += delta
 	_actualizar(false)
-	if panel_vr and panel_vr.visible:
+	if panel_vr:
 		_seguir_vr(delta)
 	_cuadros += 1
 	if _zoom_prueba > 0.0 and grande and _cuadros == 5:   # el rover ya esta en su sitio
@@ -496,9 +502,20 @@ func _actualizar(forzar: bool) -> void:
 		_s_actual = world.route_nearest_s(_pos)   # es O(n): no cada cuadro
 		_t_busca = 0.0
 	var tramo := int(floor(_s_actual / TRAMO_M))
+	var cambio := forzar or grande or tramo != _tramo
 	if tramo != _tramo:
 		_construir_tramo(tramo)
+	# Mapa pequeno: solo se redibuja si el punto o el limite recorrido/por recorrer se mueve >= 0.5 px (a ~0.15 px/m, unos
+	# 3 m), no 90 veces por segundo. El grande (solo escritorio, con raton) se redibuja cada cuadro como antes.
+	if cambio or _pos.distance_to(_pos_dib) * _escala >= 0.5 or absf(_s_actual - _s_dib) * _escala >= 0.5:
+		_redibujar()
+
+
+func _redibujar() -> void:
+	_pos_dib = _pos
+	_s_dib = _s_actual
 	lienzo.queue_redraw()
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 
 
 # Vertices reales de la ruta entre s0 y s1 (m), con los extremos interpolados. Devuelve [puntos, s de cada punto].
