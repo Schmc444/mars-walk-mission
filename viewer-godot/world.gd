@@ -42,6 +42,9 @@ var _idx_cache := {}
 var _blank: ImageTexture
 var _next_update := 0.0
 var _ready_flag := false
+const NN_CELL := 64.0          # m: grilla de vertices de la ruta para route_nearest_s
+const NN_MAX_RING := 16        # mas lejos que ~1 km de la ruta se recorre todo (raro)
+var _nn_grid := {}             # Vector2i -> Array de indices de route_xz
 
 
 func setup(world_dir: String) -> void:
@@ -144,6 +147,7 @@ func _load_route() -> void:
 			route_xz.append(v)
 			route_sol.append(int(s["sol"]))
 			route_s.append(acc)
+	_build_nn_grid()
 
 
 func route_length() -> float:
@@ -170,14 +174,46 @@ func route_s_of_sol(sol: int) -> float:
 
 
 func route_nearest_s(p: Vector2) -> float:
-	var best := 1e30
+	# Mismo resultado que recorrer los ~30k vertices (incluido el desempate por indice menor), pero buscando por anillos en
+	# una grilla de NN_CELL m: lo usan minimapa y atmosfera varias veces por segundo cuando se va a pie.
+	if not _nn_grid.is_empty():
+		var c := Vector2i(floori(p.x / NN_CELL), floori(p.y / NN_CELL))
+		var best := 1e30
+		var bi := -1
+		for r in NN_MAX_RING + 1:
+			for dy in range(-r, r + 1):
+				var paso := 1 if absi(dy) == r else 2 * r      # solo el borde del anillo r
+				var dx := -r
+				while dx <= r:
+					var lista = _nn_grid.get(Vector2i(c.x + dx, c.y + dy))
+					if lista != null:
+						for i: int in lista:
+							var d := route_xz[i].distance_squared_to(p)
+							if d < best or (d == best and i < bi):
+								best = d
+								bi = i
+					dx += maxi(paso, 1)
+			# lo que queda fuera de los anillos 0..r esta a mas de r * NN_CELL de p
+			var lim := r * NN_CELL
+			if bi >= 0 and best < lim * lim:
+				return route_s[bi]
+	var best2 := 1e30
 	var bs := 0.0
 	for i in route_xz.size():
 		var d := route_xz[i].distance_squared_to(p)
-		if d < best:
-			best = d
+		if d < best2:
+			best2 = d
 			bs = route_s[i]
 	return bs
+
+
+func _build_nn_grid() -> void:
+	_nn_grid.clear()
+	for i in route_xz.size():
+		var k := Vector2i(floori(route_xz[i].x / NN_CELL), floori(route_xz[i].y / NN_CELL))
+		if not _nn_grid.has(k):
+			_nn_grid[k] = []
+		(_nn_grid[k] as Array).append(i)
 
 
 # ---------------------------------------------------------------- streaming
