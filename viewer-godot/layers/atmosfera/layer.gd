@@ -158,7 +158,6 @@ const ETIQUETAS := {
 var bateria_ok := false         # se muestra la bateria solo si es la del visor (app corriendo en el visor) o si se pide para probar
 var bateria := -1               # % (-1 = todavia no se sabe / no disponible)
 var _t_bat := 0.0
-var analisis := false           # --atm-analisis: escribe los datos del informe (informe/analisis_ruta.gd) y cierra
 var _hilo_bat: Thread
 var canvas: CanvasLayer
 var vista_vr: SubViewport
@@ -221,7 +220,6 @@ func setup(w: WorldStreamer, c: Node) -> void:
 			"--atm-vista=presion": alternar_vista(VISTA_PRES)
 			"--atm-vista=polvo": alternar_vista(VISTA_POLVO)
 			"--atm-sonido": alternar_sonido()
-			"--atm-analisis": analisis = true
 	for a in args:
 		if a.begins_with("--atm-video="):       # grabacion de clips para el video (video/clip_video.gd)
 			var grabador: Node = load("res://layers/atmosfera/video/clip_video.gd").new()
@@ -374,10 +372,6 @@ func _process(delta: float) -> void:
 		ui.position = Vector2(vs.x * (1.0 - PANEL_MARGEN_X) - ui.size.x, vs.y * PANEL_MARGEN_Y)   # lateral derecho
 	if panel_3d and ver_panel:
 		_seguir_panel(delta)
-	if analisis and not campo_d1.is_empty() and Engine.get_process_frames() > 300:
-		analisis = false
-		load("res://layers/atmosfera/informe/analisis_ruta.gd").new().ejecutar(self)
-		get_tree().quit()
 	if bateria_ok:
 		_t_bat -= delta
 		if _t_bat <= 0.0:

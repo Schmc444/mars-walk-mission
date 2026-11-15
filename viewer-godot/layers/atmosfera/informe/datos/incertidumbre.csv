@@ -1,6 +1,0 @@
-magnitud,valor,sigma_1er_orden,media_mc,sigma_mc,unidad
-presion,744.666,14.760,744.497,14.754,Pa
-po2,1.19146,0.12146,1.19154,0.12096,Pa
-dosis,0.68847,0.13100,0.68744,0.12952,mSv/dia
-aporte_p0_a_presion,14.7461,,,,Pa
-aporte_H_a_presion,0.6357,,,,Pa

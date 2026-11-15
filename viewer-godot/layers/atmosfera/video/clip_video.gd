@@ -43,7 +43,7 @@ var yaw_suave := INF
 const PELIGRO_DUR := 1.2
 const PELIGRO_ON := 0.4
 var peligro_activado := false
-# Clip "mapa": vista cenital del tramo A -> B con el peligro activo y las rutas del informe (informe/datos/caminos.csv):
+# Clip "mapa": vista cenital del tramo A -> B con el peligro activo y las rutas guardadas en video/caminos.txt:
 # real (azul), recta A -> B (blanca, punteada) y segura con A* (verde, se dibuja de A a B).
 const MAPA_DUR := 1.8
 const MAPA_CENTRO := Vector2(-7123.0, -2806.0)   # algo al norte del tramo: las rutas quedan debajo del panel
@@ -184,9 +184,9 @@ func _tecla_h() -> void:
 
 
 func _cargar_caminos() -> void:
-	var f := FileAccess.open("res://layers/atmosfera/informe/datos/caminos.csv", FileAccess.READ)
+	var f := FileAccess.open("res://layers/atmosfera/video/caminos.txt", FileAccess.READ)
 	if f == null:
-		push_warning("clip mapa: no encuentro informe/datos/caminos.csv (correr --atm-analisis)")
+		push_warning("clip mapa: no encuentro video/caminos.txt")
 		return
 	f.get_line()
 	while not f.eof_reached():

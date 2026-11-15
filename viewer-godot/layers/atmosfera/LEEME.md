@@ -90,12 +90,6 @@ Con `--atm-hora` cambian los números y las vistas, pero la luz de la escena sig
 godot --path viewer-godot --xr-mode off -- --world=/ruta/al/mundo --sol=1063 --layers=atmosfera,piedras --atm-vista=calor
 ```
 
-## Informe técnico
-
-[`informe/informe_atmosfera.pdf`](informe/informe_atmosfera.pdf) (formato IEEE): cálculos paso a paso de cada parámetro, pendientes por
-diferencias centrales, cálculo de rutas con A* y sistemas en variables de estado. Detalles y cómo regenerarlo en [`informe/README.md`](informe/README.md).
-Los datos salen de `--atm-analisis` (usa las mismas funciones que el panel).
-
 ## Archivos
 
 | Archivo | Qué es |
