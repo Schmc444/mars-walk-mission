@@ -18,6 +18,13 @@ var play_from_s := 0.0
 var play_first := true
 var play_fps := 30.0
 var rec_audio_pid := -1
+var rec_events: Array = []
+var rec_overlay := 0
+var rec_route := ""
+var rec_route_n := 0
+var play_events: Array = []
+var play_ev_i := 0
+var play_dir := ""
 var play_pitch := 0.0
 var play_level := false
 var play_smooth := 0.0
@@ -52,6 +59,13 @@ func setup(w: WorldStreamer, c: Node) -> void:
 			if j != null:
 				play_data = j
 				print("ruta: reproduciendo ", play_data.size(), " muestras")
+				play_dir = a.get_slice("=", 1).get_base_dir()
+				var ep: String = a.get_slice("=", 1).get_basename() + ".events.json"
+				if FileAccess.file_exists(ep):
+					var ev = JSON.parse_string(FileAccess.get_file_as_string(ep))
+					if ev is Array:
+						play_events = ev
+						print("ruta: ", play_events.size(), " eventos")
 		elif a.begins_with("--play-from="):
 			play_from_s = float(a.get_slice("=", 1))
 		elif a.begins_with("--video-res="):
@@ -321,6 +335,11 @@ func _rec_toggle() -> void:
 	rec_on = not rec_on
 	if rec_on:
 		rec_data = []
+		rec_events = []
+		rec_overlay = int(core.get("overlay")) if core.get("overlay") != null else 0
+		rec_events.append({"t": 0.0, "overlay": rec_overlay})
+		rec_route = ""
+		rec_route_n = 0
 		var dir := OS.get_environment("HOME") + "/mars/rec"
 		DirAccess.make_dir_recursive_absolute(dir)
 		var stamp := Time.get_datetime_string_from_system().replace(":", "-")
@@ -355,7 +374,30 @@ func _exit_tree() -> void:
 		_rec_save()
 
 
+func _rec_events_poll() -> void:
+	var t := snappedf((Time.get_ticks_msec() - rec_t0) / 1000.0, 0.001)
+	var ov = core.get("overlay")
+	if ov != null and int(ov) != rec_overlay:
+		rec_overlay = int(ov)
+		rec_events.append({"t": t, "overlay": rec_overlay})
+	var ui = core.get("route_ui")
+	if ui == null or ui.get("guide") == null:
+		return
+	var g = ui.guide
+	var cur: String = g.json_path if g.has_route() else ""
+	if cur != rec_route:
+		rec_route = cur
+		if cur == "":
+			rec_events.append({"t": t, "route_clear": true})
+		else:
+			rec_route_n += 1
+			var name := rec_path.get_file().get_basename() + "_ruta%d.json" % rec_route_n
+			DirAccess.copy_absolute(cur, rec_path.get_base_dir() + "/" + name)
+			rec_events.append({"t": t, "route": name, "name": g.goal_name, "status": ui.status})
+
+
 func _rec_sample(delta: float) -> void:
+	_rec_events_poll()
 	var t: Transform3D = core.cam.global_transform
 	var q := t.basis.get_rotation_quaternion()
 	rec_data.append([snappedf((Time.get_ticks_msec() - rec_t0) / 1000.0, 0.001), snappedf(core.ride_s, 0.01), 1 if core.riding else 0,
@@ -371,6 +413,9 @@ func _rec_save() -> void:
 	var f := FileAccess.open(rec_path, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(rec_data))
+	var fe := FileAccess.open(rec_path.get_basename() + ".events.json", FileAccess.WRITE)
+	if fe:
+		fe.store_string(JSON.stringify(rec_events))
 
 
 func _play_row() -> Array:
@@ -399,6 +444,24 @@ func _play_apply() -> void:
 	var r := _play_row()
 	core.ride_s = r[0]
 	core.riding = r[1] == 1
+	rover_s = r[0]
+	var tnow := play_frame / play_fps
+	while play_ev_i < play_events.size() and float(play_events[play_ev_i]["t"]) <= tnow:
+		_play_event(play_events[play_ev_i])
+		play_ev_i += 1
+
+
+func _play_event(e: Dictionary) -> void:
+	if e.has("overlay") and core.has_method("_toggle_hazard"):
+		core._toggle_hazard(int(e["overlay"]))
+	var ui = core.get("route_ui")
+	if ui == null:
+		return
+	if e.has("route"):
+		if ui.guide.set_route(play_dir + "/" + str(e["route"]), str(e.get("name", ""))):
+			ui._say(str(e.get("status", "")), 15.0)
+	elif e.has("route_clear"):
+		ui.guide.clear_route()
 
 
 func _play_cam() -> void:
