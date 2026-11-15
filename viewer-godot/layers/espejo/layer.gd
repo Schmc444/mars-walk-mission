@@ -1,6 +1,6 @@
 extends Node3D
 # Capa espejo: con --espejo sirve la vista del visor como MJPEG por HTTP para proyectarla desde otro equipo.
-# Abrir http://<ip-del-visor>:8090/ en un navegador (pantalla completa). Opciones: --espejo-puerto=N, --espejo-fps=N, --espejo-ancho=N, --espejo-bind=IP
+# Abrir http://<ip-del-visor>:8090/ en un navegador (pantalla completa). Opciones: --espejo-puerto=N, --espejo-fps=N, --espejo-ancho=N, --espejo-bind=IP, --espejo-raw (BMP sin comprimir, para enlaces rapidos)
 
 var port := 8090
 var fps := 15.0
@@ -17,6 +17,7 @@ var pendiente: Image = null
 var ultimo_jpg := PackedByteArray()
 var salir := false
 var bind := "*"
+var raw := false
 var espera := 0
 
 
@@ -31,6 +32,8 @@ func setup(_w: WorldStreamer, c: Node) -> void:
 			port = int(a.get_slice("=", 1))
 		elif a.begins_with("--espejo-fps="):
 			fps = clampf(float(a.get_slice("=", 1)), 1.0, 60.0)
+		elif a == "--espejo-raw":
+			raw = true
 		elif a.begins_with("--espejo-bind="):
 			bind = a.get_slice("=", 1)
 		elif a.begins_with("--espejo-ancho="):
@@ -106,7 +109,7 @@ func _servir() -> void:
 			var linea := req.get_slice("\r\n", 0)
 			if linea.begins_with("GET /stream"):
 				p.put_data("HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=f\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".to_utf8_buffer())
-				stream.append(p)
+				stream.append({"peer": p, "resto": PackedByteArray(), "off": 0})
 			elif linea.begins_with("GET /snap"):
 				mutex.lock()
 				var j := ultimo_jpg
@@ -123,17 +126,68 @@ func _servir() -> void:
 		var img := pendiente
 		pendiente = null
 		mutex.unlock()
+		var paquete := PackedByteArray()
 		if img != null:
-			var jpg := img.save_jpg_to_buffer(0.75)
-			mutex.lock()
-			ultimo_jpg = jpg
-			mutex.unlock()
-			for p in stream.duplicate():
-				p.poll()
-				if p.get_status() != StreamPeerTCP.STATUS_CONNECTED:
-					stream.erase(p)
-					continue
-				var cab := ("--f\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n" % jpg.size()).to_utf8_buffer()
-				if p.put_data(cab) != OK or p.put_data(jpg) != OK or p.put_data("\r\n".to_utf8_buffer()) != OK:
-					stream.erase(p)
-		OS.delay_msec(4)
+			var tipo := "image/jpeg"
+			var cuerpo: PackedByteArray
+			if raw:
+				tipo = "image/bmp"
+				cuerpo = _bmp(img)
+			else:
+				cuerpo = img.save_jpg_to_buffer(0.8)
+				mutex.lock()
+				ultimo_jpg = cuerpo
+				mutex.unlock()
+			paquete = ("--f\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n" % [tipo, cuerpo.size()]).to_utf8_buffer()
+			paquete.append_array(cuerpo)
+			paquete.append_array("\r\n".to_utf8_buffer())
+		for c in stream.duplicate():
+			var p: StreamPeerTCP = c["peer"]
+			p.poll()
+			if p.get_status() != StreamPeerTCP.STATUS_CONNECTED:
+				stream.erase(c)
+				continue
+			if c["resto"].size() - c["off"] <= 0 and not paquete.is_empty():
+				c["resto"] = paquete
+				c["off"] = 0
+			if c["resto"].size() - c["off"] > 0:
+				var r: Array = p.put_partial_data(c["resto"].slice(c["off"]))
+				if r[0] != OK:
+					stream.erase(c)
+				else:
+					c["off"] += r[1]
+		OS.delay_msec(3)
+
+
+func _bmp(img: Image) -> PackedByteArray:
+	if img.get_format() != Image.FORMAT_RGBA8:
+		img.convert(Image.FORMAT_RGBA8)
+	var datos := img.get_data()
+	var b := StreamPeerBuffer.new()
+	b.big_endian = false
+	b.put_u8(0x42)
+	b.put_u8(0x4D)
+	b.put_u32(122 + datos.size())
+	b.put_u32(0)
+	b.put_u32(122)
+	b.put_u32(108)
+	b.put_32(img.get_width())
+	b.put_32(-img.get_height())
+	b.put_u16(1)
+	b.put_u16(32)
+	b.put_u32(3)
+	b.put_u32(datos.size())
+	b.put_u32(2835)
+	b.put_u32(2835)
+	b.put_u32(0)
+	b.put_u32(0)
+	b.put_u32(0x000000FF)
+	b.put_u32(0x0000FF00)
+	b.put_u32(0x00FF0000)
+	b.put_u32(0)
+	b.put_u32(0x57696E20)
+	for _i in 12:
+		b.put_u32(0)
+	var out := b.data_array
+	out.append_array(datos)
+	return out
