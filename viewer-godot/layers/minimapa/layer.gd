@@ -1,6 +1,6 @@
 extends Node3D
 # Capa MINIMAPA: ruta de Perseverance en gris claro y el rover como un punto que se mueve sobre ella.
-# Norte arriba. Usa los vertices reales de la ruta (en el tramo van cada ~0.8 m), sin remuestrear.
+# Usa los vertices reales de la ruta (en el tramo van cada ~0.8 m), sin remuestrear.
 #   - Pequeno: esquina inferior derecha, tramo de ~1.2 km alrededor del rover. Clic o tecla M lo agranda.
 #   - Grande, con dos pestanas (clic o teclas 1 y 2):
 #       1 · Toda la ruta                      2 · Sol 1063–1116 · Ingenuity (solo la ruta de ese rango de soles)
@@ -510,7 +510,7 @@ func _dibujar_chico() -> void:
 			px.append((v - _min) * _escala)
 		_trazar(px, _s_pts, 3.0)
 		_punto(((_pos - _min) * _escala).clamp(Vector2(4, 4), Vector2(_tam - 4, _tam - 4)), 5.0)
-	lienzo.draw_string(ThemeDB.fallback_font, Vector2(_tam - 22, 18), "N", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 1, 1, 0.8))
+	lienzo.draw_string(ThemeDB.fallback_font, Vector2(6, _tam - 8), _fmt_lonlat(_pos), HORIZONTAL_ALIGNMENT_LEFT, _tam - 12, 12, Color(1, 1, 1, 0.8))
 
 
 # Lo recorrido (mas oscuro) hasta el rover y lo que falta (gris claro). ss = metraje de cada punto.
@@ -585,7 +585,11 @@ func _dibujar_grande() -> void:
 	lienzo.draw_string(f, Vector2(_tam - 220, _tam - 28), info, HORIZONTAL_ALIGNMENT_RIGHT, 204, 15, Color(1, 1, 1, 0.8))
 	if modo >= 1:
 		lienzo.draw_string(f, Vector2(_tam - 260, _tam - 68), "línea %s (P)" % ("pulida" if _pulido else "original"), HORIZONTAL_ALIGNMENT_RIGHT, 244, 14, Color(1, 1, 1, 0.6))
-	lienzo.draw_string(f, Vector2(_tam - 220, _tam - 48), "N ↑   zoom ×%.1f" % (esc / _esc_fit[modo]), HORIZONTAL_ALIGNMENT_RIGHT, 204, 14, Color(1, 1, 1, 0.6))
+	# Longitud y latitud: del cursor si esta sobre el mapa, si no del rover.
+	var sobre := util.has_point(_mouse)
+	var c_txt := ("Cursor  " + _fmt_lonlat(_px_a_mundo(_mouse))) if sobre else ("Rover  " + _fmt_lonlat(_pos))
+	lienzo.draw_string(f, Vector2(_tam - 400, _tam - 8), c_txt, HORIZONTAL_ALIGNMENT_RIGHT, 388, 14, Color(1, 1, 1, 0.9))
+	lienzo.draw_string(f, Vector2(_tam - 220, _tam - 48), "zoom ×%.1f" % (esc / _esc_fit[modo]), HORIZONTAL_ALIGNMENT_RIGHT, 204, 14, Color(1, 1, 1, 0.6))
 
 
 func _dibujar_pestanas() -> void:
@@ -607,6 +611,12 @@ func _dibujar_pestanas() -> void:
 	lienzo.draw_rect(_rc_cerrar, Color(1, 1, 1, 0.08))
 	lienzo.draw_rect(_rc_cerrar, Color(1, 1, 1, 0.25), false, 1.5)
 	lienzo.draw_string(f, Vector2(_tam - 30, 5 + 17), "✕", HORIZONTAL_ALIGNMENT_CENTER, 24, 15, Color(1, 1, 1, 0.8))
+
+
+# "Lon 77.31970°E  Lat 18.48983°N" para una posicion del mundo (x, z).
+func _fmt_lonlat(p: Vector2) -> String:
+	var ll := world.world_to_lonlat(p.x, p.y)
+	return "Lon %.5f°%s  Lat %.5f°%s" % [absf(ll.x), "E" if ll.x >= 0.0 else "W", absf(ll.y), "N" if ll.y >= 0.0 else "S"]
 
 
 func _fmt_m(m: float) -> String:
