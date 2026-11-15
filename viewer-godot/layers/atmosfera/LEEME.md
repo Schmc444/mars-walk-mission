@@ -55,7 +55,9 @@ del 5 % al 95 % de los valores en el mapa alrededor, así siempre se ven las dif
   sombras salen más frías). ±14 °C alrededor del suelo plano a esa hora. El cielo de Marte sale frío.
 - **Radiación:** dosis del mapa. El cielo sale alto (de ahí llegan los rayos cósmicos).
 - **Oxígeno / presión:** del mapa; bajan con la altura, así que el cielo sale bajo. En presión, rojo = zonas bajas (más aire encima).
-- **Polvo:** opacidad del mapa + remolinos de polvo como columnas.
+- **Polvo:** opacidad del mapa + remolinos de polvo como columnas. Los remolinos son **raros, como en Jezero**: casi ninguno antes de
+  las 10:00 (la escena está a ~08:30, así que normalmente no hay), pico a las 13:00. Para verlos: `--atm-hora=13` y paciencia, o subir
+  `MULT_DD` en `modelo.gd` (solo para ilustrar).
 Son visualizaciones del modelo de la capa (SINTÉTICO con base física, ver abajo), no mediciones.
 
 **Sonido (J):** un tono que sube de frecuencia al acercarse a una zona alta del parámetro de la vista activa (sin vista: el más cercano
@@ -99,7 +101,7 @@ G temperatura en K, valores reales; el shader los pasa a 0..1 con `rango_local`)
 
 | Parámetro | Valor base (real) | Cambio con el sol | Cambio de un lugar a otro |
 |---|---|---|---|
-| Polvo (τ) | Temporada clara ~0.3-0.4; tormentas DS-1 (sols 312-318, τ ≈ 1.4), DS-A (sols ~417-472, τ ≥ 1), DS-C (sol ~574) | Aproximación a las curvas de MEDA | **SINTÉTICO**: zonas de ráfagas y posición de los remolinos. La cantidad (~2.5 por km² por sol) y el tamaño (5-135 m) sí son de MEDA |
+| Polvo (τ) | Temporada clara ~0.3-0.4; tormentas DS-1 (sols 312-318, τ ≈ 1.4), DS-A (sols ~417-472, τ ≥ 1), DS-C (sol ~574) | Aproximación a las curvas de MEDA | **SINTÉTICO**: parches de ráfagas (pequeños: hasta +0.15 de τ) y posición de los remolinos. Sí son de MEDA: cantidad (~2.5 por km² por sol), diámetro (5-135 m, mediana ~25 m) y a qué hora ocurren (Jackson 2022). **Supuesto**: cada remolino dura 5 min, columna de 120-450 m |
 | Radiación | 0.67 mSv/día (RAD, Gale), corregida por presión | Por presión (coeficiente ilustrativo) | **SINTÉTICO**: ±10 % y blindaje de hondonadas |
 | Oxígeno | 0.16 % del aire (SAM) | Subida estacional aproximada (SAM midió hasta +30 %) | Por altura (física) + **SINTÉTICO** ±12 % |
 | Presión | Ciclo estacional de MEDA (forma aproximada, ~650-780 Pa) | Sí | Por altura (**física**, altura de escala 11.1 km): ~7 Pa menos por cada 100 m |
@@ -118,6 +120,7 @@ para **ilustrar** cómo se vería un mapa así. Los remolinos de polvo sí son l
 - Smith et al. 2023, *JGR Planets*, doi:10.1029/2022JE007560. MEDA/TIRS: opacidad del polvo en Jezero.
 - Sánchez-Lavega et al. 2025: tormentas DS-1, DS-A y DS-C, y la relación sol ↔ Ls. https://arxiv.org/abs/2501.05337
 - Hueso et al. 2023, *JGR Planets*, doi:10.1029/2022JE007516, y Toledo et al. 2023, doi:10.1029/2022JE007494: remolinos en Jezero (1.3-3.4 por km² por sol, 5-135 m).
+- Jackson 2022, *Planetary Science Journal*, "Vortices and Dust Devils As Observed by the MEDA Instruments onboard Mars 2020 Perseverance Rover", https://arxiv.org/abs/2109.04601 : encuentros por hora según la hora local (figura 6), pico ~1.5/h a mediodía; paso típico de ~20 s; ~1/4 de los vórtices llevan polvo. Detecta los vórtices con un filtro adaptado (convolución con un perfil lorentziano) sobre la presión de MEDA.
 - Newman et al. 2022, *Science Advances*, doi:10.1126/sciadv.abn3783: vientos y remolinos en Jezero. https://www.nasa.gov/missions/mars-2020-perseverance/perseverance-rover/nasas-perseverance-studies-the-wild-winds-of-jezero-crater/
 - Harri et al. 2024, *JGR Planets*, doi:10.1029/2023JE007880. MEDA: presión en Jezero; aterrizaje en Ls ~5°.
 - MOXIE (MIT/NASA): O2 producido en Jezero. https://news.mit.edu/2021/aboard-nasa-perseverance-mars-rover-moxie-creates-oxygen-0421 · https://science.nasa.gov/?p=354880

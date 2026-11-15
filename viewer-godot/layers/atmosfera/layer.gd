@@ -318,7 +318,7 @@ func _process(delta: float) -> void:
 	_generar_campo(p)
 	if _t_rem <= 0.0:
 		_t_rem = 0.1
-		remol = m.remolinos(sol_actual, p.x, p.z, Time.get_ticks_msec() / 1000.0, 1200.0, 16)
+		remol = m.remolinos(sol_actual, p.x, p.z, Time.get_ticks_msec() / 1000.0, 1200.0, 16, hora)
 		_subir_remolinos()
 	if _t_ui <= 0.0:
 		_t_ui = 0.2
