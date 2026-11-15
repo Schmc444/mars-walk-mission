@@ -1,12 +1,13 @@
 extends Node3D
-# Capa ruta_punteada: linea punteada sobre el suelo a lo largo de TODA la ruta del Perseverance.
-# El terreno solo existe cerca del jugador, asi que los puntos se generan en una ventana alrededor de donde estas.
+# Capa ruta_punteada: linea de segmentos sobre el suelo a lo largo de TODA la ruta del Perseverance.
+# El terreno solo existe cerca del jugador, asi que los segmentos se generan en una ventana alrededor de donde estas.
 # Se ajusta con las constantes de abajo; --sinpuntos la apaga.
 
-const PASO_M := 6.0          # distancia entre puntos
+const PASO_M := 3.0          # distancia entre inicios de segmento
+const LARGO_M := 2.2         # largo de cada segmento (el hueco es PASO_M - LARGO_M)
 const RADIO_M := 900.0       # hasta donde se dibuja la ruta desde el jugador
-const PUNTO_M := 0.35        # radio del punto a corta distancia
-const CRECE_CADA_M := 120.0  # el punto crece con la distancia para verse de lejos
+const ANCHO_M := 0.28        # ancho del segmento a corta distancia
+const CRECE_CADA_M := 120.0  # el segmento se ensancha con la distancia para verse de lejos
 const SOBRE_SUELO := 0.14
 const COLOR := Color(1.0, 0.82, 0.2)
 const REFRESCO_S := 1.0
@@ -25,12 +26,8 @@ func setup(w: WorldStreamer, c: Node) -> void:
 	if "--sinpuntos" in OS.get_cmdline_user_args():
 		set_process(false)
 		return
-	var disco := CylinderMesh.new()
-	disco.top_radius = 1.0
-	disco.bottom_radius = 1.0
-	disco.height = 0.06
-	disco.radial_segments = 12
-	disco.rings = 1
+	var disco := BoxMesh.new()
+	disco.size = Vector3(1.0, 0.05, 1.0)
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.albedo_color = COLOR
@@ -67,12 +64,17 @@ func _reconstruir(p: Vector3) -> void:
 	var xfs: Array[Transform3D] = []
 	while s <= s_fin:
 		var q: Vector2 = world.route_pos(s)
+		var q2: Vector2 = world.route_pos(minf(s + LARGO_M, largo))
 		var d := q.distance_to(pxz)
-		if d <= RADIO_M:
+		if d <= RADIO_M and q2.distance_to(q) > 0.2:
 			var h: float = world.height_at(q.x, q.y)
-			if h != 0.0:
-				var r := PUNTO_M * (1.0 + d / CRECE_CADA_M)
-				xfs.append(Transform3D(Basis.from_scale(Vector3(r, 1.0, r)), Vector3(q.x, h + SOBRE_SUELO, q.y)))
+			var h2: float = world.height_at(q2.x, q2.y)
+			if h != 0.0 and h2 != 0.0:
+				var a := Vector3(q.x, h + SOBRE_SUELO, q.y)
+				var b := Vector3(q2.x, h2 + SOBRE_SUELO, q2.y)
+				var ancho := ANCHO_M * (1.0 + d / CRECE_CADA_M)
+				var bas := Basis.looking_at(b - a, Vector3.UP) * Basis.from_scale(Vector3(ancho, 1.0, a.distance_to(b)))
+				xfs.append(Transform3D(bas, (a + b) * 0.5))
 		s += PASO_M
 	mm.instance_count = xfs.size()
 	for i in xfs.size():
