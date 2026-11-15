@@ -30,3 +30,17 @@ Para cambiar el pin por un modelo 3D: en `layer.gd`, dentro de `_make_pin`, agre
 
 ## Reglas
 Solo edita esta carpeta. Archivos < 10 MB. Cita la fuente de los datos en este archivo.
+
+## Hueco de la muestra 24 en el terreno real (en construccion, paso 2)
+Se activa con el bloque `"perforacion"` de `puntos.json` (todos los valores se editan ahi). Solo funciona en **modo mundo**:
+```
+godot --path . --xr-mode off -- --world=C:\dev\mundo\world --layers=puntos_interes --at=-6953,-2703
+```
+Teclas: C inspeccionar (~20 cm), V volver, X ayudas, Z corte; en inspeccion Q/E girar y + / - zoom.
+Usa un recorte minimo en `terrain.gdshader` (nucleo, apagado por defecto). Escena de prueba sin terreno: `test_hueco.tscn` (F6).
+Supuestos y limites: ver `"SUPUESTOS"` en `puntos.json` y la salida impresa al cargar.
+
+### Paredes del hueco (paso 3)
+Las paredes interiores llevan una textura **aproximada**: un recorte del mosaico WATSON del sol 1088 (superficie de la roca ANTES de perforar), porque no existe una imagen del interior real.
+Se ajusta en `"paredes"` de `puntos.json` (`brillo`, `saturacion`, `degradado`, `relieve`, `um_por_px`). El archivo `cg2.png` esta reducido ~3.85x (122 um/px frente a los 31.7 um/px del original).
+Credito: NASA/JPL-Caltech/MSSS (P. Barr). Recorte: `img/pared_watson_sol1088.png` (167x112 px).
