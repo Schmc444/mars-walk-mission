@@ -695,6 +695,18 @@ var overlay := 0   # 0 normal, 1 pendiente, 2.. vistas de falso color de la capa
 
 var a_down_ms := 0
 var a_reset_done := false
+var hud_vr_on := true
+var grip_der_down := false
+
+
+func _toggle_hud_vr() -> void:
+	hud_vr_on = not hud_vr_on
+	var atm = get_node_or_null("capa_atmosfera")
+	if atm != null and atm.has_method("alternar_panel") and atm.ver_panel != hud_vr_on:
+		atm.alternar_panel()
+	var mm = get_node_or_null("capa_minimapa")
+	if mm != null and mm.has_method("poner_visible_vr"):
+		mm.poner_visible_vr(hud_vr_on)
 
 
 func _toggle_hazard(to := -1) -> void:
@@ -734,6 +746,13 @@ func _unhandled_input(e: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	if in_xr and right != null:
+		var gd: float = right.get_float("grip")
+		if gd > 0.85 and not grip_der_down:
+			grip_der_down = true
+			_toggle_hud_vr()
+		elif gd < 0.4:
+			grip_der_down = false
 	if a_down_ms > 0 and not a_reset_done and Time.get_ticks_msec() - a_down_ms >= 3000:
 		a_reset_done = true
 		_toggle_hazard(0)

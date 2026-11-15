@@ -1,12 +1,14 @@
 extends Node3D
 # Capa MINIMAPA: ruta de Perseverance en gris claro y el rover como un punto que se mueve sobre ella.
 # Norte arriba. Usa los vertices reales de la ruta (en el tramo van cada ~0.8 m), sin remuestrear.
-#   - Pequeno: esquina inferior derecha, tramo de ~1.2 km alrededor del rover. Clic o tecla M lo agranda.
-#   - Grande, con dos pestanas (clic o teclas 1 y 2):
+#   - Pequeno: esquina inferior derecha, tramo de ~1.2 km alrededor del rover. Clic o Tab lo agranda.
+#   - Grande, con dos pestanas (clic o teclas F4 y F5):
 #       1 · Toda la ruta                      2 · Sol 1063–1116 · Ingenuity (solo la ruta de ese rango de soles)
-#     En ambas: rueda = zoom (hacia el cursor), arrastrar = mover, doble clic o R = encuadrar,
+#     En ambas: rueda = zoom (hacia el cursor), arrastrar = mover, doble clic o Inicio = encuadrar,
 #     puntos blancos = fin de cada conduccion con su sol (pasa el cursor sobre uno para ver "Sol N").
-#   - En VR: panel pegado a la mano izquierda (core.left), siempre pequeno.
+#   - En VR: panel que sigue a la cabeza (a la izquierda, como el de atmosfera), siempre pequeno; main.gd lo
+#     muestra/oculta junto con el panel de atmosfera (agarre derecho) llamando a poner_visible_vr().
+#     P (pulida/original) pasa a F10.
 # API usada: world.route_pos/route_s_of_sol/route_length/route_nearest_s/lonlat_to_world, los arreglos publicos
 # world.route_xz / route_s / route_sol; core.origin, core.ride_s, core.riding, core.in_xr.
 
@@ -338,20 +340,59 @@ func _colocar_panel() -> void:
 		panel.offset_bottom = -16
 
 
+const VR_X := -0.27
+const VR_Y := -0.06
+const VR_DIST := 0.95
+const VR_GIRO := 0.22
+const VR_TAM := 0.26
+const VR_ZONA_MUERTA_GRADOS := 6.0     # mismo filtro que el panel de atmosfera
+const VR_SUAVIZADO_S := 0.25
+
+var panel_vr: MeshInstance3D
+var _giro := Quaternion.IDENTITY
+var _giro_ok := false
+var _siguiendo := false
+
+
 func _montar_en_mano() -> void:
-	var q := MeshInstance3D.new()
+	panel_vr = MeshInstance3D.new()
 	var quad := QuadMesh.new()
-	quad.size = Vector2(0.18, 0.18)
-	q.mesh = quad
+	quad.size = Vector2(VR_TAM, VR_TAM)
+	panel_vr.mesh = quad
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.albedo_texture = vp.get_texture()
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
-	q.material_override = m
-	q.position = Vector3(0, 0.07, -0.05)
-	q.rotation_degrees = Vector3(-60, 0, 0)
-	core.left.add_child(q)
+	m.no_depth_test = true
+	m.render_priority = 90
+	panel_vr.material_override = m
+	panel_vr.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	panel_vr.extra_cull_margin = 10.0
+	panel_vr.top_level = true
+	add_child(panel_vr)
+
+
+func poner_visible_vr(v: bool) -> void:
+	if panel_vr:
+		panel_vr.visible = v
+
+
+# Zona muerta + filtro de primer orden sobre el giro de la cabeza; la posicion sigue a la cabeza exacta.
+func _seguir_vr(delta: float) -> void:
+	var cab: Transform3D = core.cam.global_transform
+	var q_cab := cab.basis.get_rotation_quaternion()
+	if not _giro_ok:
+		_giro = q_cab
+		_giro_ok = true
+	var ang := rad_to_deg(_giro.angle_to(q_cab))
+	if ang > VR_ZONA_MUERTA_GRADOS:
+		_siguiendo = true
+	if _siguiendo:
+		_giro = _giro.slerp(q_cab, 1.0 - exp(-delta / VR_SUAVIZADO_S))
+		if ang < 1.0:
+			_siguiendo = false
+	panel_vr.global_transform = Transform3D(Basis(_giro), cab.origin) * Transform3D(Basis(Vector3.UP, VR_GIRO), Vector3(VR_X, VR_Y, -VR_DIST))
 
 
 func alternar() -> void:
@@ -419,15 +460,16 @@ func _zoom(p: Vector2, f: float) -> void:
 func _unhandled_input(e: InputEvent) -> void:
 	if not (e is InputEventKey and e.pressed and not e.echo):
 		return
-	if e.keycode == KEY_M:
+	# Teclas elegidas para no chocar con atmosfera (M,P), camara/ruta (R) y los destinos de route_ui (1-9).
+	if e.keycode == KEY_TAB:
 		alternar()
-	elif grande and e.keycode == KEY_R:
+	elif grande and e.keycode == KEY_HOME:
 		_encuadrar(modo)
-	elif grande and modo >= 1 and e.keycode == KEY_P:
+	elif grande and modo >= 1 and e.keycode == KEY_F10:
 		_pulido = not _pulido
 		_vista_ok = false
-	elif grande and e.keycode >= KEY_1 and e.keycode < KEY_1 + 1 + TRAMOS.size():
-		modo = e.keycode - KEY_1
+	elif grande and e.keycode >= KEY_F4 and e.keycode < KEY_F4 + 1 + TRAMOS.size():
+		modo = e.keycode - KEY_F4
 		_vista_ok = false
 
 
@@ -436,6 +478,8 @@ func _process(delta: float) -> void:
 		return
 	_t_busca += delta
 	_actualizar(false)
+	if panel_vr and panel_vr.visible:
+		_seguir_vr(delta)
 	_cuadros += 1
 	if _zoom_prueba > 0.0 and grande and _cuadros == 5:   # el rover ya esta en su sitio
 		_esc[modo] = _esc_fit[modo] * _zoom_prueba
