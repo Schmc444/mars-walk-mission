@@ -20,9 +20,11 @@ godot --path . --xr-mode off -- --world=/ruta/al/mundo --layers=ingenuity --at=-
 `--at=X,Z` empieza a pie en ese punto del mundo. En consola sale `ingenuity: x=... z=...`.
 
 ## Siguiente (lo tuyo)
-- Reemplazar el helicoptero provisional por un modelo `.glb` (ver comentario en `_make_heli`).
 - Mision de rescate: ruta segura a pie desde el rover hasta Ingenuity. Utiles: `world.slope_deg(x, z)` (pendiente), `core.hazard_on`, `world.route_nearest_s(Vector2(px, pz))` (punto de la ruta mas cercano).
 - Para varios waypoints, usa la misma idea de `_make_pin` en una lista.
 
 ## Reglas
 Solo edita esta carpeta. Archivos < 10 MB. Cita la fuente de los datos en este archivo.
+
+## Modelo
+`ingenuity.glb`: Ingenuity Mars Helicopter, NASA/JPL (repo nasa/NASA-3D-Resources), copia del cache de Luna Visor. Se escala para que el rotor mida 1.21 m (real) y se apoya en el suelo. Si no carga, usa el helicoptero provisional.

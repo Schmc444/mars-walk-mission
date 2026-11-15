@@ -35,8 +35,45 @@ func setup(w: WorldStreamer, c: Node) -> void:
 	print("ingenuity: x=", snappedf(px, 0.1), " z=", snappedf(pz, 0.1))
 
 
-# Helicoptero provisional (cuerpo + 2 palas). Reemplazar por un .glb: heli = load("res://layers/ingenuity/ingenuity.glb").instantiate()
+# Modelo NASA/JPL (NASA-3D-Resources, el mismo de Luna Visor) a escala real: rotor de 1.21 m. Si no carga, queda el helicoptero provisional.
+const ROTOR_M := 1.21
+
+
 func _make_heli() -> Node3D:
+	var ps = load("res://layers/ingenuity/ingenuity.glb")
+	if ps is PackedScene:
+		var m: Node3D = ps.instantiate()
+		var bb := _aabb(m, Transform3D.IDENTITY)
+		var span := maxf(bb.size.x, bb.size.z)
+		if span > 1e-4:
+			var k := ROTOR_M / span
+			m.scale = Vector3(k, k, k)
+			m.position = Vector3(-(bb.position.x + bb.size.x * 0.5) * k, -bb.position.y * k, -(bb.position.z + bb.size.z * 0.5) * k)
+			var n := Node3D.new()
+			n.add_child(m)
+			print("ingenuity: modelo glb %.2f x %.2f x %.2f (sin escalar), factor %.4f -> alto real %.2f m" % [bb.size.x, bb.size.y, bb.size.z, k, bb.size.y * k])
+			return n
+	push_warning("ingenuity: no se pudo cargar ingenuity.glb, uso el helicoptero provisional")
+	return _make_heli_provisional()
+
+
+func _aabb(n: Node, xf: Transform3D) -> AABB:
+	var r := AABB()
+	var primero := true
+	if n is MeshInstance3D and n.mesh != null:
+		r = xf * (n as MeshInstance3D).get_aabb()
+		primero = false
+	for c in n.get_children():
+		if c is Node3D:
+			var cb := _aabb(c, xf * (c as Node3D).transform)
+			if cb.size == Vector3.ZERO and cb.position == Vector3.ZERO:
+				continue
+			r = cb if primero else r.merge(cb)
+			primero = false
+	return r
+
+
+func _make_heli_provisional() -> Node3D:
 	var n := Node3D.new()
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.85, 0.85, 0.85)
@@ -79,8 +116,8 @@ func _make_pin(nombre: String, color: Color) -> Node3D:
 	mat.albedo_color = color
 	var poste := MeshInstance3D.new()
 	var cm := CylinderMesh.new()
-	cm.top_radius = 0.15
-	cm.bottom_radius = 0.15
+	cm.top_radius = 0.04
+	cm.bottom_radius = 0.04
 	cm.height = ALTO_PIN
 	poste.mesh = cm
 	poste.material_override = mat
