@@ -331,7 +331,7 @@ func _process(d: float) -> void:
 	t_suelo -= d
 	if t_suelo <= 0.0:
 		t_suelo = 0.5
-		var hy := world.height_at(xz.x, xz.y)
+		var hy := world.height_at(xz.x, xz.y) + float(C.get("elevar_base_m", 0.0))      # elevar_base_m: sube la referencia del cartel (la boca del hueco esta sobre la roca)
 		if not y_ok:
 			y_suelo = hy
 			y_ok = true

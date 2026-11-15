@@ -55,10 +55,13 @@ var arg_cerca := false
 var arg_corte := false
 var cont: Node3D
 var t_val := 0.0
+var roca: Node3D = null                # roca (roca.gd) sobre la que va el hueco; null = hueco en el suelo, como antes
+var H0 := Vector3.ZERO                 # boca sobre el terreno (antes de pasar a la roca)
 
 
-func setup(w: WorldStreamer, c: Node, perf: Dictionary, pos_xz: Vector2) -> void:
+func setup(w: WorldStreamer, c: Node, perf: Dictionary, pos_xz: Vector2, roca_nodo: Node3D = null) -> void:
 	world = w
+	roca = roca_nodo
 	core = c
 	P = perf
 	xz = pos_xz
@@ -112,6 +115,8 @@ func _process(d: float) -> void:
 
 # El terreno se carga y se reemplaza por distancia: si cambia el triangulo bajo el hueco (otra resolucion), se recolocan las piezas.
 func _validar() -> void:
+	if roca != null:                    # sobre la roca la boca queda fija una vez armada
+		return
 	var h := _terreno_hit(xz.x, xz.y)
 	if h.is_empty() or float(h["area"]) > 1.5:
 		return
@@ -181,11 +186,19 @@ func _dist_a_aristas(h: Dictionary) -> float:
 
 
 func _intentar_armar() -> void:
+	if roca != null and not roca.armada:
+		return                          # espera a que la roca este construida
 	var h := _terreno_hit(xz.x, xz.y)
 	if h.is_empty() or float(h["area"]) > 1.5:     # 1.5 m2: solo la malla de 1 m (la de 5 m aun es la tosca, aun no cargo la fina)
 		return
 	H = h["p"]
 	n_s = h["n"]
+	H0 = H
+	if roca != null:
+		# MODO ROCA: misma posicion horizontal (x, z = lat/lon); solo cambia la altura (la boca de la roca) y el plano (la cara superior de la roca,
+		# cuya normal es el eje del taladro).
+		H = roca.H
+		n_s = -d_in
 	a_s = -n_s.x / n_s.y
 	b_s = -n_s.z / n_s.y
 	var ab: Dictionary = P["abrasion"]
@@ -195,8 +208,12 @@ func _intentar_armar() -> void:
 	var hp := _terreno_hit(xz.x + float(pp[0]), xz.y + float(pp[1]))
 	if hp.is_empty() or float(hp["area"]) > 1.5:
 		return
+	if roca != null:
+		hp = h                          # sin parche (Castle Geyser no se modela)
 	var Hp: Vector3 = hp["p"]
 	var n_p: Vector3 = hp["n"]
+	if roca != null:
+		n_p = n_s
 	var a_p := -n_p.x / n_p.y
 	var b_p := -n_p.z / n_p.y
 	var primera := not armado
@@ -211,14 +228,14 @@ func _intentar_armar() -> void:
 	var tr: Dictionary = P["terreno"]
 	var sep := float(tr["separacion_mm"]) * 0.001
 	# ---- recortes del terreno (shader) ----
-	rec_a = Vector4(H.x, H.z, 1.0, 0.0)
+	rec_a = Vector4(H.x, H.z, 0.0 if roca != null else 1.0, 0.0)      # sobre la roca no se recorta el suelo
 	forma_r = _forma(a_s, b_s, d_in, R)
 	# El recorte del suelo es 1.5 mm mas grande que el hueco: a 7 km del origen cada objeto redondea su posicion por separado
 	# (~0.5 mm) y, si coincidieran exactamente, asomarian tiras de suelo dentro de la boca. Ese margen lo tapa el anillo de polvo (opaco cerca de la boca)
 	# , que va en la MISMA malla que el tubo (misma posicion, sin desajuste).
 	var margen := float(tr["margen_recorte_mm"]) * 0.001
 	rec_a_m = _forma(a_s, b_s, d_in, R + margen)
-	var parche_visible := bool(ab.get("visible", true))      # "visible": false en puntos.json -> sin parche ni recorte del suelo
+	var parche_visible := bool(ab.get("visible", true)) and roca == null      # "visible": false en puntos.json (o roca) -> sin parche ni recorte del suelo
 	rec_b = Vector4(Hp.x, Hp.z, 1.0 if parche_visible else 0.0, 0.0)
 	rec_b_m = _forma(a_p, b_p, n_p, pr)
 	# ---- tubo del hueco ----
@@ -284,6 +301,8 @@ func _intentar_armar() -> void:
 		cl.add_child(hud)
 		_imprimir(h, hp, sep)
 		print(info_pared)
+		if roca != null:
+			_informe_roca()
 	else:
 		print("hueco: el terreno fino cambio; piezas recolocadas sobre el triangulo actual")
 	_aplicar_uniformes()
@@ -351,7 +370,9 @@ func _aplicar_uniformes() -> void:
 		sm.set_shader_parameter("rec_b", rec_b)
 		sm.set_shader_parameter("rec_b_m", rec_b_m)
 		sm.set_shader_parameter("rec_c", rc)
-		sm.set_shader_parameter("rec_c_r", corte_r if corte_on else 0.0)
+		sm.set_shader_parameter("rec_c_r", 0.0 if roca != null else (corte_r if corte_on else 0.0))
+	if roca != null:
+		roca.poner_corte(corte_r if corte_on else 0.0, Vector2(n_c.x, n_c.z))
 
 
 # Cilindro (tubo del hueco o parche). Todo en coordenadas relativas al hueco. El shader trabaja en el espacio LOCAL de la malla
@@ -535,6 +556,30 @@ func _poner_hud() -> void:
 	else:
 		hud.text = "Hueco de la muestra 24: C inspeccionar | Z corte"
 	hud.position = Vector2(10.0, get_viewport().get_visible_rect().size.y - hud.size.y - 10.0)
+
+
+# PASO 2: posicion del hueco antes (sobre el terreno) y despues (sobre la roca), y diametro medido en su malla.
+func _informe_roca() -> void:
+	var ll0 := world.world_to_lonlat(H0.x, H0.z)
+	var ll1 := world.world_to_lonlat(H.x, H.z)
+	print("hueco: ======== PASO 2: el hueco pasa a la roca ========")
+	print("hueco: ANTES  (sobre el terreno): x = %.3f, y = %.3f, z = %.3f | lon = %.7f, lat = %.7f" % [H0.x, H0.y, H0.z, ll0.x, ll0.y])
+	print("hueco: DESPUES (sobre la roca)  : x = %.3f, y = %.3f, z = %.3f | lon = %.7f, lat = %.7f" % [H.x, H.y, H.z, ll1.x, ll1.y])
+	print("hueco: cambio: dx = %.4f m, dz = %.4f m (lat/lon iguales), dy = %+.3f m (solo la altura)" % [H.x - H0.x, H.z - H0.z, H.y - H0.y])
+	var rmax := 0.0
+	for ch in cont.get_children():
+		var mi := ch as MeshInstance3D
+		if mi != null and mi.mesh is ArrayMesh and mi.mesh.get_surface_count() > 0:
+			var vsa: PackedVector3Array = (mi.mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+			var rr := 0.0
+			for v in vsa:
+				rr = maxf(rr, Vector2(v.x, v.z).length())
+			if rr > 0.004 and rr < 0.01:
+				rmax = rr
+				break
+	print("hueco: diametro medido en la malla del tubo = %.2f mm (debe ser 13.00); profundidad = %.1f mm; eje = (%.4f, %.4f, %.4f) = -normal de la cara superior" % [rmax * 2000.0, prof * 1000.0, d_in.x, d_in.y, d_in.z])
+	print("hueco: instancias de hueco en la escena: %d (nodo '%s')" % [get_parent().find_children("hueco_muestra", "", false, false).size(), name])
+	roca.verificar()
 
 
 func _imprimir(h: Dictionary, hp: Dictionary, sep: float) -> void:
