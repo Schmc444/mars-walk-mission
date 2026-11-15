@@ -17,6 +17,12 @@ var play_frame := 0
 var play_from_s := 0.0
 var play_first := true
 var play_fps := 30.0
+var rec_audio_pid := -1
+var play_pitch := 0.0
+var play_level := false
+var play_smooth := 0.0
+var play_fov := 0.0
+var play_prev := Transform3D.IDENTITY
 var rover_full := false
 var rover_full_hq := "--rover=hq" in OS.get_cmdline_user_args()
 
@@ -57,6 +63,10 @@ func setup(w: WorldStreamer, c: Node) -> void:
 			_rec_toggle.call_deferred()
 		if a.begins_with("--lever="):
 			lever = clampf(float(a.get_slice("=", 1)), -1.0, 1.0)
+	if play_data.is_empty() and core.left != null:
+		core.left.button_pressed.connect(func(n: String):
+			if n in ["trigger_click", "ax_button"]:
+				_rec_toggle())
 
 
 func _unhandled_input(e: InputEvent) -> void:
@@ -69,6 +79,9 @@ func _unhandled_input(e: InputEvent) -> void:
 			lever = clampf(lever - 0.1, -1.0, 1.0)
 		KEY_SPACE:
 			lever = 0.0
+		KEY_F9:
+			if play_data.is_empty():
+				_rec_toggle()
 
 
 func _process(delta: float) -> void:
@@ -308,14 +321,38 @@ func _rec_toggle() -> void:
 	rec_on = not rec_on
 	if rec_on:
 		rec_data = []
-		rec_t0 = Time.get_ticks_msec()
 		var dir := OS.get_environment("HOME") + "/mars/rec"
 		DirAccess.make_dir_recursive_absolute(dir)
-		rec_path = "%s/rec_%s.json" % [dir, Time.get_datetime_string_from_system().replace(":", "-")]
-		print("ruta: GRABANDO -> ", rec_path)
+		var stamp := Time.get_datetime_string_from_system().replace(":", "-")
+		rec_path = "%s/rec_%s.json" % [dir, stamp]
+		if not "--sinaudio" in OS.get_cmdline_user_args():
+			rec_audio_pid = OS.create_process("pw-record", ["--rate", "48000", "--channels", "1", "%s/rec_%s.wav" % [dir, stamp]])
+		rec_t0 = Time.get_ticks_msec()
+		print("ruta: GRABANDO -> ", rec_path, " audio pid ", rec_audio_pid)
+		_haptic(1)
 	else:
+		_rec_audio_stop()
+		_haptic(2)
 		_rec_save()
 		print("ruta: grabacion guardada, muestras=", rec_data.size())
+
+
+func _rec_audio_stop() -> void:
+	if rec_audio_pid > 0:
+		OS.execute("kill", ["-INT", str(rec_audio_pid)])
+		rec_audio_pid = -1
+
+
+func _haptic(n: int) -> void:
+	if core.left != null:
+		for i in n:
+			core.left.trigger_haptic_pulse("haptic", 0.0, 1.0, 0.25, i * 0.35)
+
+
+func _exit_tree() -> void:
+	_rec_audio_stop()
+	if rec_on:
+		_rec_save()
 
 
 func _rec_sample(delta: float) -> void:
@@ -374,7 +411,21 @@ func _play_cam() -> void:
 	var r := _play_row()
 	if r[1] == 1:
 		core.origin.position = rover.position + rover.basis.y * SEAT_Y
-	core.cam.global_transform = Transform3D(Basis(r[3]), r[2])
+	var xf := Transform3D(Basis(r[3]), r[2])
+	if play_level:
+		var f := -xf.basis.z
+		var pit := asin(clampf(f.y, -1.0, 1.0))
+		f.y = 0.0
+		if f.length() > 0.001:
+			xf.basis = Basis.looking_at(f.normalized(), Vector3.UP) * Basis(Vector3.RIGHT, pit)
+	if play_pitch != 0.0:
+		xf.basis = xf.basis * Basis(Vector3.RIGHT, deg_to_rad(play_pitch))
+	if play_smooth > 0.0 and play_prev != Transform3D.IDENTITY:
+		xf = play_prev.interpolate_with(xf, 1.0 - exp(-play_smooth / play_fps))
+	play_prev = xf
+	core.cam.global_transform = xf
+	if play_fov > 0.0:
+		core.cam.fov = play_fov
 	play_frame += 1
 	if play_frame / play_fps > play_data[play_data.size() - 1][0]:
 		print("ruta: reproduccion terminada")
