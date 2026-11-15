@@ -8,6 +8,7 @@ var core: Node
 var rover: Node3D
 var rover_s := 0.0
 var rec_on := false
+var rec_dot: MeshInstance3D
 var rec_data: Array = []      # [t, ride_s, riding, px,py,pz, qx,qy,qz,qw]
 var rec_t0 := 0
 var rec_save_clock := 0.0
@@ -342,8 +343,28 @@ func _light_mat(m: Material) -> Material:
 	return b
 
 
+func _rec_dot_set(on: bool) -> void:
+	if rec_dot == null:
+		rec_dot = MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.008
+		sm.height = 0.016
+		rec_dot.mesh = sm
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.albedo_color = Color(1.0, 0.05, 0.05)
+		m.no_depth_test = true
+		m.render_priority = 127
+		rec_dot.material_override = m
+		rec_dot.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		rec_dot.position = Vector3(0.11, 0.075, -0.5)
+		core.cam.add_child(rec_dot)
+	rec_dot.visible = on
+
+
 func _rec_toggle() -> void:
 	rec_on = not rec_on
+	_rec_dot_set(rec_on)
 	if rec_on:
 		rec_data = []
 		rec_events = []
