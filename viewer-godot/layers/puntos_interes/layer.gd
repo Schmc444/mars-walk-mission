@@ -25,7 +25,10 @@ func setup(w: WorldStreamer, c: Node) -> void:
 			xz = Vector2(p["x"], p["z"])
 		else:
 			xz = world.lonlat_to_world(p["lon"], p["lat"])
-		var pin := _make_pin(p.get("nombre", "?"), COLOR, float(p.get("pin_radio_m", 0.15)))
+		var col_pin := COLOR
+		if p.has("pin_color"):
+			col_pin = Color(float(p["pin_color"][0]), float(p["pin_color"][1]), float(p["pin_color"][2]))
+		var pin := _make_pin(p.get("nombre", "?"), col_pin, float(p.get("pin_radio_m", 0.15)), float(p.get("pin_bola_factor", 1.0 / 0.15)), str(p.get("etiqueta", p.get("nombre", "?"))), float(p.get("pin_texto_escala", 1.0)), float(p.get("pin_alto_m", ALTO_PIN)))
 		add_child(pin)
 		var pin_off: Array = p.get("pin_desfase_m", [0.0, 0.0])     # [este, sur] m: aparta el poste para que no tape lo que hay en el punto
 		items.append([pin, xz.x + float(pin_off[0]), xz.y + float(pin_off[1])])
@@ -49,7 +52,7 @@ func _process(d: float) -> void:
 
 
 # --- pin: poste alto + esfera + nombre, pegado al suelo ---
-func _make_pin(nombre: String, color: Color, radio_poste: float = 0.15) -> Node3D:
+func _make_pin(nombre: String, color: Color, radio_poste: float = 0.15, bola_factor: float = 1.0 / 0.15, etiqueta: String = "", texto_escala: float = 1.0, alto: float = ALTO_PIN) -> Node3D:
 	var n := Node3D.new()
 	n.name = nombre
 	var mat := StandardMaterial3D.new()
@@ -59,28 +62,29 @@ func _make_pin(nombre: String, color: Color, radio_poste: float = 0.15) -> Node3
 	var cm := CylinderMesh.new()
 	cm.top_radius = radio_poste
 	cm.bottom_radius = radio_poste
-	cm.height = ALTO_PIN
+	cm.height = alto
 	poste.mesh = cm
 	poste.material_override = mat
-	poste.position.y = ALTO_PIN * 0.5
+	poste.position.y = alto * 0.5
 	n.add_child(poste)
 	var bola := MeshInstance3D.new()
 	var sm := SphereMesh.new()
-	sm.radius = 1.0
-	sm.height = 2.0
+	var rb := radio_poste * bola_factor            # la bola es proporcional al poste (por defecto 1 m para el poste de 15 cm)
+	sm.radius = rb
+	sm.height = 2.0 * rb
 	bola.mesh = sm
 	bola.material_override = mat
-	bola.position.y = ALTO_PIN + 1.0
+	bola.position.y = alto + rb
 	n.add_child(bola)
 	var t := Label3D.new()
-	t.text = nombre
+	t.text = etiqueta if etiqueta != "" else nombre     # texto visible (la clave "nombre" no cambia)
 	t.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	t.no_depth_test = true
 	t.fixed_size = true
-	t.pixel_size = 0.0008
+	t.pixel_size = 0.0008 * texto_escala
 	t.font_size = 48
 	t.modulate = Color(1, 1, 1)
 	t.outline_size = 12
-	t.position.y = ALTO_PIN + 3.0
+	t.position.y = alto + 2.0 * rb + 1.0
 	n.add_child(t)
 	return n
