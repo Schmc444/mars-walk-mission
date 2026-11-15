@@ -1,7 +1,9 @@
 # Informe técnico de la capa Atmósfera
 
-**PDF:** [`informe_atmosfera.pdf`](informe_atmosfera.pdf) (formato IEEE, 5 páginas). Fuente LaTeX: [`informe_atmosfera.tex`](informe_atmosfera.tex),
-referencias en [`referencias.bib`](referencias.bib) (títulos, autores y DOI verificados en Crossref y arXiv).
+**PDF:** [`informe_atmosfera.pdf`](informe_atmosfera.pdf) (formato IEEE, 6 páginas). Fuente LaTeX: [`informe_atmosfera.tex`](informe_atmosfera.tex),
+referencias en [`referencias.bib`](referencias.bib): 21 fuentes, 12 de ellas de la NASA o de sus instrumentos (MEDA, RAD, SAM, MOXIE, NASA-STD-3001, NSSDCA, NASA Glenn, PDS), verificadas en Crossref, arXiv y nasa.gov.
+
+**Overleaf:** `informe_overleaf.zip` se genera localmente (no se sube); en Overleaf: *New Project → Upload Project*, compilador pdfLaTeX.
 
 ## Contenido
 

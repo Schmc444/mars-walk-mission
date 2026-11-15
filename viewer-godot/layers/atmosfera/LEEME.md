@@ -126,7 +126,7 @@ para **ilustrar** cómo se vería un mapa así. Los remolinos de polvo sí son l
 ## Fuentes
 
 - Hassler et al. 2013, *Science*. RAD/Curiosity: 0.67 mSv/día en la superficie. https://www.swri.org/press-release/swri-scientists-publish-first-radiation-measurements-surface-mars
-- NASA OCHMO, NASA-STD-3001: límite de carrera de 600 mSv y tope de 0.8 mSv/día en superficie. https://www.nasa.gov/sites/default/files/atoms/files/ochmo_standards_overview_sept_15_2021_francisco.pdf
+- NASA OCHMO, NASA-STD-3001 Vol. 1 Rev C (resumen técnico OCHMO-TB-020 Rev G, 2025): límite de carrera de 600 mSv y tope de 0.9 mSv/día en superficies planetarias. https://www.nasa.gov/wp-content/uploads/2023/12/ochmo-tb-020-radiation-protection.pdf
 - Guo et al. 2017, *JGR Planets*: la dosis baja cuando hay más atmósfera encima. https://arxiv.org/abs/1712.06987
 - Trainer et al. 2019, *JGR Planets* (NASA Goddard). SAM: composición del aire y O2 hasta +30 % en primavera/verano. https://www.nasa.gov/missions/with-mars-methane-mystery-unsolved-curiosity-serves-scientists-a-new-one-oxygen/
 - Smith et al. 2023, *JGR Planets*, doi:10.1029/2022JE007560. MEDA/TIRS: opacidad del polvo en Jezero.

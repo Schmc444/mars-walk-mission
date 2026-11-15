@@ -8,7 +8,7 @@
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
 \usepackage[hidelinks]{hyperref}
-\usepackage{url}
+\usepackage{xurl}
 \usepackage{newunicodechar}
 \newunicodechar{°}{\ensuremath{^\circ}}
 \renewcommand\IEEEkeywordsname{Palabras clave}
@@ -34,7 +34,7 @@ Marte, Jezero, MEDA, modelo atmosférico, propagación de incertidumbre, Monte C
 \section{Introducción}
 El simulador \emph{Mars Route Walker} reconstruye la ruta de \emph{Perseverance} sobre el modelo de elevación HiRISE de 1\,m y permite recorrerla en realidad virtual. Sobre ese núcleo, cada integrante del equipo agrega una \emph{capa}. La capa Atmósfera responde a la pregunta \emph{¿cómo es el aire donde estoy parado?} con un panel de cinco valores y cinco vistas de falso color, implementadas en Godot~4.7~\cite{godot}. El equipo trabaja sobre el tramo \textbf{A = sol 1063} a \textbf{B = sol 1116}.
 
-\textbf{Alcance del modelo.} Los valores base y su ciclo estacional se toman de publicaciones de los equipos de los instrumentos. En la realidad, la radiación, el oxígeno y el polvo de fondo casi no cambian en pocos kilómetros; por eso su variación espacial es \emph{sintética} (ruido suave de amplitud acotada) y sirve para ilustrar. La excepción es la presión, cuya dependencia con la altura es física. La Tabla~\ref{tab:fuentes} resume qué es medido y qué es sintético. Todos los números de este informe salen de la herramienta de análisis de la capa (\texttt{informe/analisis\_ruta.gd}), que usa las mismas funciones que el panel.
+\textbf{Alcance del modelo.} Los valores base y su ciclo estacional se toman de la NASA y de publicaciones de los equipos de sus instrumentos: MEDA en \emph{Perseverance}~\cite{rodriguezmanfredi2021,nasa_instrumentos}, y RAD y SAM en \emph{Curiosity}. En la realidad, la radiación, el oxígeno y el polvo de fondo casi no cambian en pocos kilómetros; por eso su variación espacial es \emph{sintética} (ruido suave de amplitud acotada) y sirve para ilustrar. La excepción es la presión, cuya dependencia con la altura es física. La Tabla~\ref{tab:fuentes} resume qué es medido y qué es sintético. Todos los números de este informe salen de la herramienta de análisis de la capa (\texttt{informe/analisis\_ruta.gd}), que usa las mismas funciones que el panel.
 
 \begin{table}[t]
 \caption{Valores base, fuentes y naturaleza de la variación espacial}
@@ -43,11 +43,11 @@ El simulador \emph{Mars Route Walker} reconstruye la ruta de \emph{Perseverance}
 \begin{tabular}{@{}p{1.25cm}p{3.05cm}p{3.0cm}@{}}
 \toprule
 Parámetro & Base (fuente) & Variación espacial \\ \midrule
-Presión & Ciclo estacional MEDA~\cite{harri2024} & Física: $e^{-h/H}$ \\
-O$_2$ & 0.16\,\% del aire, SAM~\cite{trainer2019} & Sintética $\pm12$\,\% \\
-Radiación & 0.67\,mSv/día, RAD~\cite{hassler2014} & Presión~\cite{guo2017} + sintética $\pm10$\,\% \\
-Temperatura & Ciclo diario MEDA~\cite{munguira2023} & Ladera al sol / hondonada (base física) \\
-Polvo $\tau$ & MEDA/TIRS~\cite{smith2023}, tormentas~\cite{sanchezlavega2025} & Parches sintéticos ($\le0.15$) + remolinos~\cite{hueso2023,toledo2023,jackson2021} \\
+Presión & Ciclo estacional MEDA~\cite{harri2024}; $H$ de la NASA~\cite{nasa_glenn,nasa_factsheet} & Física: $e^{-h/H}$ \\
+O$_2$ & 0.16\,\% del aire, SAM~\cite{trainer2019,nasa_sam2019} & Sintética $\pm12$\,\% \\
+Radiación & 0.67\,mSv/día, RAD~\cite{hassler2014,nasa_rad2013} & Presión~\cite{guo2017} + sintética $\pm10$\,\% \\
+Temperatura & Ciclo diario MEDA~\cite{munguira2023,rodriguezmanfredi2021} & Ladera al sol / hondonada (base física) \\
+Polvo $\tau$ & MEDA/TIRS~\cite{smith2023}, tormentas~\cite{sanchezlavega2025} & Parches sintéticos ($\le0.15$) + remolinos~\cite{hueso2023,toledo2023,jackson2021,nasa_winds2022} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -77,11 +77,11 @@ con $a_0 = 715$, $a_1 = 45$, $a_2 = 25$\,Pa, $\phi_1 = 255°$ y $\phi_2 = 50°$,
 \begin{equation}
 \frac{dp}{dh} = -\frac{Mg}{RT}\,p = -\frac{p}{H}\;\Rightarrow\; p(h) = p_0\, e^{-h/H},\quad H = \frac{RT}{Mg}.
 \end{equation}
-Es una ecuación diferencial lineal de primer orden con solución exponencial, suponiendo $T$ constante en los pocos cientos de metros considerados. Con $R = 8.314$\,J/(mol\,K), $M = 0.04334$\,kg/mol (95\,\% CO$_2$), $g = 3.721$\,m/s$^2$ y $T = 215$\,K: $H = 1787.5/0.16127 = 11.08$\,km. En A:
+Es una ecuación diferencial lineal de primer orden con solución exponencial, suponiendo $T$ constante en los pocos cientos de metros considerados. Con los valores de la hoja de datos de Marte de la NASA~\cite{nasa_factsheet} ---gravedad $g = 3.73$\,m/s$^2$, masa molar media $M = 43.49$\,g/mol y temperatura media $T \approx 214$\,K--- y $R = 8.314$\,J/(mol\,K): $H = 1779.2/0.16222 = 10.97$\,km, de acuerdo con los 11.0\,km que reporta esa misma hoja. El modelo usa $H = 11.1$\,km, la altura de escala del modelo atmosférico de NASA Glenn~\cite{nasa_glenn}, $p = 0.699\,e^{-0.00009h}$\,kPa, es decir $H = 1/0.00009 = 11\,111$\,m; la diferencia de 1.2\,\% queda dentro de la incertidumbre de la Sec.~\ref{sec:incert}. En A:
 $p = 757.49\, e^{-189.5/11100} = \mathbf{744.67}$\,Pa, el 0.735\,\% de la presión al nivel del mar en la Tierra y el 11.8\,\% del límite de Armstrong (6.3\,kPa). La pendiente local es $dp/dh = -p/H = -0.067$\,Pa/m: unos $-6.7$\,Pa por cada 100\,m que se sube.
 
 \subsection{Oxígeno: fracción y presión parcial}
-SAM midió una fracción de O$_2$ de 0.16\,\% con un aumento estacional de hasta 30\,\%~\cite{trainer2019}. El modelo usa
+SAM midió en Gale un aire con 95\,\% de CO$_2$, 2.6\,\% de N$_2$, 1.9\,\% de Ar, 0.16\,\% de O$_2$ y 0.06\,\% de CO, con un aumento estacional del O$_2$ de hasta 30\,\%~\cite{trainer2019,nasa_sam2019}; la hoja de datos de la NASA da los mismos valores~\cite{nasa_factsheet}. El modelo usa
 \begin{equation}
 f_{O_2}(L_s) = 0.0016\left[1 + 0.2\,e^{-\left(\frac{L_s-75°}{45°}\right)^2}\right].
 \end{equation}
@@ -89,17 +89,17 @@ En $L_s = 203.07°$ el término gaussiano vale $e^{-8.10} \approx 3\times10^{-4}
 \begin{equation}
 p_{O_2} = f_{O_2}\, p\,(1 + 0.12\,n_O) \approx 0.0016 \cdot 744.67 = \mathbf{1.19}\ \text{Pa},
 \end{equation}
-frente a $\approx 21\,200$\,Pa en la Tierra: el 0.0056\,\%. Es una lectura simulada: la fracción medida proviene de \emph{Curiosity} (cráter Gale); \emph{Perseverance} no mide la composición del aire, y MOXIE produjo O$_2$ a partir de CO$_2$~\cite{moxie}.
+frente a $\approx 21\,200$\,Pa en la Tierra: el 0.0056\,\%. Es una lectura simulada: la fracción medida proviene de \emph{Curiosity} (cráter Gale); \emph{Perseverance} no mide la composición del aire, y MOXIE produjo O$_2$ a partir de CO$_2$: 122\,g en total, hasta 12\,g/h~\cite{nasa_instrumentos}.
 
 \subsection{Radiación: blindaje por la atmósfera}
-RAD midió en Gale una dosis equivalente de 0.67\,mSv/día~\cite{hassler2014}. La dosis baja cuando hay más masa de aire encima~\cite{guo2017}, y la masa por unidad de área de la columna es proporcional a la presión ($p = g\,m/A$). El modelo, lineal alrededor de la presión de referencia de 820\,Pa y con un coeficiente ilustrativo $k = 0.3$, es
+RAD midió en Gale una dosis equivalente de 0.67\,mSv/día entre agosto de 2012 y junio de 2013~\cite{hassler2014,nasa_rad2013}. La dosis baja cuando hay más masa de aire encima~\cite{guo2017}, y la masa por unidad de área de la columna es proporcional a la presión ($p = g\,m/A$). El modelo, lineal alrededor de la presión de referencia de 820\,Pa y con un coeficiente ilustrativo $k = 0.3$, es
 \begin{equation}
 D = D_0\left(1 - k\,\frac{p-820}{820}\right) b\,(1 + 0.10\,n_D),
 \end{equation}
-con $b = 1 - 0.10\min(\Delta h_{\text{hond}}/15, 1)$ el blindaje de una hondonada (el terreno tapa parte del cielo). En A, la parte por presión vale $0.67(1 + 0.3\cdot0.0919) = 0.6885$ y los factores locales 0.989, así que $D = \mathbf{0.681}$\,mSv/día: el 85\,\% del tope de 0.8\,mSv/día de NASA-STD-3001~\cite{nasastd3001}.
+con $b = 1 - 0.10\min(\Delta h_{\text{hond}}/15, 1)$ el blindaje de una hondonada (el terreno tapa parte del cielo). En A, la parte por presión vale $0.67(1 + 0.3\cdot0.0919) = 0.6885$ y los factores locales 0.989, así que $D = \mathbf{0.681}$\,mSv/día: el 76\,\% del tope de diseño de 0.9\,mSv/día para superficies planetarias de NASA-STD-3001 Vol.~1 Rev.~C~\cite{nasa_ochmo2025}.
 
 \subsection{Temperatura del aire a 1.5\,m}
-MEDA mide temperaturas de aproximadamente $-85$\,°C de madrugada y $-20$\,°C después del mediodía~\cite{munguira2023}. La forma del ciclo diario es un semiciclo de coseno entre el mínimo (05{:}30) y el máximo (13{:}30), y otro más lento de vuelta:
+Los sensores de temperatura del aire de MEDA~\cite{rodriguezmanfredi2021} miden aproximadamente $-85$\,°C de madrugada y $-20$\,°C después del mediodía~\cite{munguira2023}. La forma del ciclo diario es un semiciclo de coseno entre el mínimo (05{:}30) y el máximo (13{:}30), y otro más lento de vuelta:
 \begin{equation}
 F(h)=\begin{cases}-\cos\!\big(\pi\frac{h-5.5}{8}\big), & 5.5\le h\le 13.5\\[2pt] \cos\!\big(\pi\frac{h'-13.5}{16}\big), & \text{en otro caso}\end{cases}
 \end{equation}
@@ -120,7 +120,7 @@ donde $\tau$ es la opacidad óptica. Con el Sol en lo alto, la fracción bloquea
 \begin{equation}
 n(h) = \rho_d\,\frac{a(h)}{\sum a}\,\frac{L}{60} = 2.5\cdot\frac{1.49}{6.57}\cdot\frac{5}{60} = 0.047\ \text{km}^{-2}
 \end{equation}
-a las 13{:}00, y $n = 0$ a las 08{:}29: a esa hora no hay remolinos, igual que en Jezero.
+a las 13{:}00, y $n = 0$ a las 08{:}29: a esa hora no hay remolinos, igual que en Jezero. Es coherente con lo que reporta la NASA: al menos cuatro remolinos pasan junto al rover en un día típico, y más de uno por hora poco después del mediodía~\cite{nasa_winds2022}.
 
 \begin{figure*}[t]
 \centering
@@ -132,7 +132,7 @@ a las 13{:}00, y $n = 0$ a las 08{:}29: a esa hora no hay remolinos, igual que e
 \label{fig:vistas}
 \end{figure*}
 
-\section{Incertidumbre}
+\section{Incertidumbre}\label{sec:incert}
 Los valores anteriores dependen de entradas que no se conocen con exactitud. Para una magnitud $y = f(x_1,\dots,x_n)$ con entradas independientes, la propagación de primer orden (serie de Taylor truncada) da
 \begin{equation}
 \sigma_y^2 \approx \sum_i \left(\frac{\partial f}{\partial x_i}\right)^2 \sigma_{x_i}^2 .
@@ -270,7 +270,7 @@ Recta A$\to$B & 320 & 767 & \textbf{18.0°} & 0.00240 \\
 \subsection{Resultados}
 La recta es la más corta (33\,\% menos que la ruta real) pero no es factible, porque cruza una pendiente de 18° (Tabla~\ref{tab:rutas}, Figs.~\ref{fig:mapa}--\ref{fig:pend}). El camino óptimo la rodea con solo 15\,m más y obtiene el menor costo: 31\,\% menos que la ruta real y 2\,\% menos que la recta. La ruta real es más larga porque responde a objetivos científicos y a restricciones del rover que el costo no incluye.
 
-\emph{Dosis.} La dosis de una caminata es la integral de la tasa en el tiempo, $\mathcal D = \int \dot D\,dt = \frac{1}{v}\int_\Gamma \dot D\,ds$. Para 335\,m a 1\,m/s (5.6\,min) da 0.0025\,mSv, cuatro órdenes de magnitud bajo el límite de carrera de 600\,mSv. Como $\dot D$ casi no cambia en 300\,m, la dosis depende del \emph{tiempo} de exposición, no del camino.
+\emph{Dosis.} La dosis de una caminata es la integral de la tasa en el tiempo, $\mathcal D = \int \dot D\,dt = \frac{1}{v}\int_\Gamma \dot D\,ds$. Para 335\,m a 1\,m/s (5.6\,min) da 0.0025\,mSv, cinco órdenes de magnitud bajo el límite de carrera de 600\,mSv~\cite{nasa_ochmo2025}. Como $\dot D$ casi no cambia en 300\,m, la dosis depende del \emph{tiempo} de exposición, no del camino.
 
 \subsection{Sensibilidad de la ruta}
 \emph{Peso de la exposición.} Se repitió A* con $\lambda$ entre 0 y 100. Con $\lambda \le 3$ se obtiene prácticamente el mismo camino (335\,m, exposición media 0.358); con $\lambda = 20$ o más, la exposición media baja solo de 0.358 a 0.351 (2\,\%) a cambio de subir la pendiente máxima de 11.3° a 12.1°. El frente de Pareto entre distancia y exposición prácticamente se reduce a un punto: \textbf{en este tramo la exposición es casi uniforme y la ruta la deciden el terreno y la distancia}. Es coherente con la física: en unos cientos de metros la atmósfera casi no cambia.
@@ -294,7 +294,7 @@ La recta es la más corta (33\,\% menos que la ruta real) pero no es factible, p
 \section{Conclusiones y trabajo futuro}
 La capa calcula cinco parámetros a partir de valores medidos y leyes físicas deducidas en el texto: equilibrio hidrostático y gas ideal (fórmula barométrica), ley de Dalton, Beer--Lambert, ley del coseno de Lambert, y una serie de Fourier truncada para el ciclo estacional. La propagación de incertidumbre, verificada con Monte Carlo, muestra que el error de la presión lo domina el dato de la estación y no la altura de escala, y que el de la dosis lo domina la medición de RAD. El análisis del terreno muestra que la diferencia central converge como $O(\Delta^2)$ en terreno suave, pero mide una pendiente media que depende de la escala. En el cálculo de rutas con A*, la recta resulta inviable, el óptimo respeta 15° con 15\,m más, no existe camino bajo 10°, y la atmósfera casi no influye en la elección dentro del tramo.
 
-Como trabajo futuro: reemplazar las aproximaciones por los datos de MEDA de los sols 1063--1116 del PDS, para validar el modelo y reducir la incertidumbre principal; hacer avanzar la hora local con el Sol de la escena; ampliar el cálculo de rutas a tramos más largos, donde la atmósfera sí varía; y diseñar un lazo de control térmico del traje usando la temperatura de la capa como perturbación.
+Como trabajo futuro: reemplazar las aproximaciones por los datos de MEDA de los sols 1063--1116, públicos en el PDS de la NASA~\cite{nasa_pds_meda}, para validar el modelo y reducir la incertidumbre principal; hacer avanzar la hora local con el Sol de la escena; ampliar el cálculo de rutas a tramos más largos, donde la atmósfera sí varía; y diseñar un lazo de control térmico del traje usando la temperatura de la capa como perturbación.
 
 \bibliographystyle{IEEEtran}
 \bibliography{referencias}
