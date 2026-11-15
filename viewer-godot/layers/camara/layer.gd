@@ -2,6 +2,7 @@ extends Node3D
 # Capa camara: una camara virtual con mirilla, independiente de la cabeza.
 #  - VR: la camara es tu mano derecha (apuntas con ella); desktop: es la vista libre.
 #  - Se dibuja la camara, un rayo y una mirilla donde apunta.
+#  - FOTO: gatillo derecho (VR) o tecla F -> PNG de alta resolucion (--foto-res=7680x4320 --foto-fov=60) en ~/mars/rec/
 #  - Graba SU trayecto (no tu cabeza) relativo al rover: --cam-rec, o tecla R en desktop.
 #  - Reproduce/renderiza ese trayecto: --cam-play=<json> [--cam-from=s] [--cam-fps=30] [--cam-pitch=grados]
 #    [--cam-level] [--cam-smooth=k] [--cam-fov=grados]. Sirve con cualquier rama, sin la ruta del casco.
@@ -17,6 +18,7 @@ var ray: MeshInstance3D
 var reticle: MeshInstance3D
 var tilt := TILT_DEG
 
+var foto_busy := false
 var rec_on := false
 var rec_data: Array = []
 var rec_t0 := 0
@@ -95,6 +97,8 @@ func _toggle_visible() -> void:
 func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventKey and e.pressed and not e.echo and e.keycode == KEY_R:
 		_rec_toggle()
+	elif e is InputEventKey and e.pressed and not e.echo and e.keycode == KEY_F:
+		_foto()
 
 
 func _mat(col: Color) -> StandardMaterial3D:
@@ -270,6 +274,50 @@ func _row() -> Array:
 func _exit_tree() -> void:
 	if rec_on:
 		_rec_save()
+
+
+func _foto() -> void:
+	if foto_busy or world == null or not world.is_ready():
+		return
+	foto_busy = true
+	var res := Vector2i(7680, 4320)
+	var fov_foto := 60.0
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--foto-res="):
+			var wh := a.get_slice("=", 1).split("x")
+			res = Vector2i(int(wh[0]), int(wh[1]))
+		elif a.begins_with("--foto-fov="):
+			fov_foto = float(a.get_slice("=", 1))
+	var xf := _source_xf()
+	rig.visible = false
+	ray.visible = false
+	reticle.visible = false
+	var vp := SubViewport.new()
+	vp.size = res
+	vp.msaa_3d = Viewport.MSAA_4X
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	add_child(vp)
+	var cam := Camera3D.new()
+	cam.fov = fov_foto
+	cam.near = core.cam.near
+	cam.far = core.cam.far
+	cam.cull_mask = core.cam.cull_mask
+	vp.add_child(cam)
+	cam.global_transform = xf
+	cam.current = true
+	for i in 4:
+		await RenderingServer.frame_post_draw
+	var img := vp.get_texture().get_image()
+	var dir := OS.get_environment("HOME") + "/mars/rec"
+	DirAccess.make_dir_recursive_absolute(dir)
+	var path := "%s/foto_%s.png" % [dir, Time.get_datetime_string_from_system().replace(":", "-")]
+	var err := img.save_png(path)
+	print("camara: FOTO %dx%d -> %s (err %d)" % [res.x, res.y, path, err])
+	vp.queue_free()
+	rig.visible = true
+	ray.visible = true
+	reticle.visible = true
+	foto_busy = false
 
 
 func _rec_toggle() -> void:
