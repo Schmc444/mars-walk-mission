@@ -233,7 +233,8 @@ func _late() -> void:
 			get_tree().quit()
 		return
 	var src := _source_xf()
-	_show(src)
+	if rig.visible:                  # oculta (by izq): no hace falta el raymarch de la mirilla (~130 height_at por cuadro)
+		_show(src)
 	if rec_on:
 		var l: Transform3D = _base().affine_inverse() * src
 		var q := l.basis.get_rotation_quaternion()
