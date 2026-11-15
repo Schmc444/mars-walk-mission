@@ -82,6 +82,7 @@ var _k_modo := -1
 
 var _tabs: Array = []                  # Rect2 de cada pestana
 var _rc_cerrar := Rect2()
+var _rc_pul := Rect2()
 var _arrastre := false
 var _mouse := Vector2(-100, -100)
 var _pos := Vector2.ZERO
@@ -364,7 +365,15 @@ const VR_TAM := 0.26
 const VR_ZONA_MUERTA_GRADOS := 6.0     # mismo filtro que el panel de atmosfera
 const VR_SUAVIZADO_S := 0.25
 
+const VR_TAM_GRANDE := 0.7
+const VR_DIST_GRANDE := 0.85
+
 var panel_vr: MeshInstance3D
+var _ray: MeshInstance3D
+var _vr_apunta := false
+var _vr_px := Vector2(-100, -100)
+var _vr_prev := Vector2.ZERO
+var _vr_drag := false
 var _giro := Quaternion.IDENTITY
 var _giro_ok := false
 var _siguiendo := false
@@ -387,6 +396,77 @@ func _montar_en_mano() -> void:
 	panel_vr.extra_cull_margin = 10.0
 	panel_vr.top_level = true
 	add_child(panel_vr)
+	_ray = MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.004, 0.004, 1.0)
+	_ray.mesh = bm
+	var rm := StandardMaterial3D.new()
+	rm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	rm.albedo_color = Color(0.45, 0.85, 1.0)
+	rm.no_depth_test = true
+	rm.render_priority = 100
+	_ray.material_override = rm
+	_ray.top_level = true
+	_ray.visible = false
+	add_child(_ray)
+	if core.right != null:
+		core.right.button_pressed.connect(func(n: String):
+			if n == "trigger_click" and _vr_apunta and panel_vr.visible:
+				_vr_press())
+		core.right.button_released.connect(func(n: String):
+			if n == "trigger_click":
+				_vr_drag = false)
+
+
+func apuntado() -> bool:
+	return _vr_apunta and panel_vr != null and panel_vr.visible
+
+
+func _vr_press() -> void:
+	if not grande:
+		alternar()
+		return
+	if _clic_ui(_vr_px):
+		_redibujar()
+		return
+	_vr_drag = true
+	_vr_prev = _vr_px
+
+
+func _vr_apuntar(delta: float) -> void:
+	_vr_apunta = false
+	_ray.visible = false
+	if core.right == null:
+		return
+	var xf: Transform3D = core.right.global_transform
+	var o := xf.origin
+	var d := -xf.basis.z
+	var n: Vector3 = panel_vr.global_basis.z
+	var den := d.dot(n)
+	if absf(den) < 1e-4:
+		return
+	var t := (panel_vr.global_position - o).dot(n) / den
+	if t < 0.0 or t > 4.0:
+		return
+	var lp: Vector3 = panel_vr.global_transform.affine_inverse() * (o + d * t)
+	var tam: float = (panel_vr.mesh as QuadMesh).size.x
+	var px := Vector2((lp.x / tam + 0.5) * _tam, (0.5 - lp.y / tam) * _tam)
+	if px.x < 0.0 or px.y < 0.0 or px.x > _tam or px.y > _tam:
+		_vr_drag = false
+		return
+	_vr_apunta = true
+	_vr_px = px
+	_mouse = px
+	_ray.visible = true
+	_ray.global_transform = Transform3D(Basis.looking_at(d, Vector3.UP if absf(d.y) < 0.99 else Vector3.RIGHT) * Basis.from_scale(Vector3(1, 1, t)), o + d * t * 0.5)
+	if grande:
+		if _vr_drag:
+			_centro[modo] -= (px - _vr_prev) / _esc[modo]
+			_vr_prev = px
+			_vista_ok = false
+		var sy: float = core.right.get_vector2("primary").y
+		if absf(sy) > 0.4:
+			_zoom(px, exp(sy * delta * 1.6))
 
 
 func poner_visible_vr(v: bool) -> void:
@@ -394,6 +474,10 @@ func poner_visible_vr(v: bool) -> void:
 		panel.visible = v
 	if panel_vr:
 		panel_vr.visible = v
+		if not v:
+			_vr_apunta = false
+			_vr_drag = false
+			_ray.visible = false
 		if v and world != null and world.is_ready():
 			_actualizar(true)
 
@@ -412,15 +496,21 @@ func _seguir_vr(delta: float) -> void:
 		_giro = _giro.slerp(q_cab, 1.0 - exp(-delta / VR_SUAVIZADO_S))
 		if ang < 1.0:
 			_siguiendo = false
-	panel_vr.global_transform = Transform3D(Basis(_giro), cab.origin) * Transform3D(Basis(Vector3.UP, VR_GIRO), Vector3(VR_X, VR_Y, -VR_DIST))
+	if grande:
+		panel_vr.global_transform = Transform3D(Basis(_giro), cab.origin) * Transform3D(Basis.IDENTITY, Vector3(0, 0, -VR_DIST_GRANDE))
+	else:
+		panel_vr.global_transform = Transform3D(Basis(_giro), cab.origin) * Transform3D(Basis(Vector3.UP, VR_GIRO), Vector3(VR_X, VR_Y, -VR_DIST))
 
 
 func alternar() -> void:
-	if core.in_xr:
-		return
 	grande = not grande
 	# El grande ocupa hasta el 85 % del alto de la ventana (nunca mas de TAM_GRANDE).
-	_tam = int(minf(TAM_GRANDE, get_viewport().get_visible_rect().size.y * 0.85)) if grande else TAM_CHICO
+	if core.in_xr:
+		_tam = TAM_GRANDE if grande else TAM_CHICO
+		(panel_vr.mesh as QuadMesh).size = Vector2.ONE * (VR_TAM_GRANDE if grande else VR_TAM)
+		_vr_drag = false
+	else:
+		_tam = int(minf(TAM_GRANDE, get_viewport().get_visible_rect().size.y * 0.85)) if grande else TAM_CHICO
 	vp.size = Vector2i(_tam, _tam)
 	lienzo.size = Vector2(_tam, _tam)
 	_colocar_panel()
@@ -451,14 +541,8 @@ func _entrada_panel(e: InputEvent) -> void:
 		_mouse = e.position
 		if e.button_index == MOUSE_BUTTON_LEFT:
 			if e.pressed:
-				if _rc_cerrar.has_point(e.position):
-					alternar()
+				if _clic_ui(e.position):
 					return
-				for i in _tabs.size():
-					if (_tabs[i] as Rect2).has_point(e.position):
-						modo = i
-						_vista_ok = false
-						return
 				if e.double_click:
 					_encuadrar(modo)
 				else:
@@ -467,6 +551,22 @@ func _entrada_panel(e: InputEvent) -> void:
 				_arrastre = false
 		elif e.pressed and (e.button_index == MOUSE_BUTTON_WHEEL_UP or e.button_index == MOUSE_BUTTON_WHEEL_DOWN):
 			_zoom(e.position, 1.25 if e.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.25)
+
+
+func _clic_ui(p: Vector2) -> bool:
+	if _rc_cerrar.has_point(p):
+		alternar()
+		return true
+	for i in _tabs.size():
+		if (_tabs[i] as Rect2).has_point(p):
+			modo = i
+			_vista_ok = false
+			return true
+	if modo >= 1 and _rc_pul.has_point(p):
+		_pulido = not _pulido
+		_vista_ok = false
+		return true
+	return false
 
 
 # Zoom hacia el cursor: el punto del mapa bajo el cursor no se mueve.
@@ -502,6 +602,7 @@ func _process(delta: float) -> void:
 	_actualizar(false)
 	if panel_vr:
 		_seguir_vr(delta)
+		_vr_apuntar(delta)
 	_cuadros += 1
 	if _zoom_prueba > 0.0 and grande and _cuadros == 5:   # el rover ya esta en su sitio
 		_esc[modo] = _esc_fit[modo] * _zoom_prueba
@@ -668,6 +769,8 @@ func _dibujar_grande() -> void:
 # Los controles, en un cuadrito arriba a la derecha.
 func _dibujar_ayuda(f: Font) -> void:
 	var lineas: Array = ["Rueda: zoom", "Arrastrar: mover", "Doble clic: encuadrar"]
+	if core.in_xr:
+		lineas = ["Stick: zoom", "Gatillo: arrastrar / elegir"]
 	var ancho := 0.0
 	for l in lineas:
 		ancho = maxf(ancho, f.get_string_size(l, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x)
@@ -697,6 +800,13 @@ func _dibujar_pestanas() -> void:
 	lienzo.draw_rect(_rc_cerrar, Color(1, 1, 1, 0.08))
 	lienzo.draw_rect(_rc_cerrar, Color(1, 1, 1, 0.25), false, 1.5)
 	lienzo.draw_string(f, Vector2(_tam - 30, 5 + 17), "✕", HORIZONTAL_ALIGNMENT_CENTER, 24, 15, Color(1, 1, 1, 0.8))
+	if modo >= 1:
+		_rc_pul = Rect2(_tam - 30 - 112, 5, 106, ALTO_PESTANAS - 8)
+		lienzo.draw_rect(_rc_pul, Color(1, 1, 1, 0.18))
+		lienzo.draw_rect(_rc_pul, Color(1, 1, 1, 0.6), false, 1.5)
+		lienzo.draw_string(f, Vector2(_rc_pul.position.x, 5 + 17), "Pulida" if _pulido else "Original", HORIZONTAL_ALIGNMENT_CENTER, 106, 15, Color(1, 1, 1, 0.95))
+	else:
+		_rc_pul = Rect2()
 
 
 # "Lon 77.31970°E  Lat 18.48983°N" para una posicion del mundo (x, z).

@@ -81,6 +81,9 @@ func setup(w: WorldStreamer, c: Node) -> void:
 			lever = clampf(float(a.get_slice("=", 1)), -1.0, 1.0)
 	if play_data.is_empty() and core.right != null:
 		core.right.button_pressed.connect(func(n: String):
+			var mm = core.get_node_or_null("capa_minimapa")
+			if mm != null and mm.has_method("apuntado") and mm.apuntado():
+				return
 			if n == "trigger_click" and not (core.get("route_ui") != null and core.route_ui.menu_open):
 				_rec_toggle())
 
