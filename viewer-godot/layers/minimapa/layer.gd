@@ -390,6 +390,8 @@ func _montar_en_mano() -> void:
 
 
 func poner_visible_vr(v: bool) -> void:
+	if panel != null:
+		panel.visible = v
 	if panel_vr:
 		panel_vr.visible = v
 		if v and world != null and world.is_ready():
