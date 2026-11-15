@@ -29,12 +29,22 @@ func setup(route_ui: Node, core_node: Node) -> void:
 	add_child(ray)
 	if core.left != null:
 		core.left.button_pressed.connect(func(n: String):
-			print("vr_menu: izq boton ", n)
+			print("BTN t=%d izq pressed %s" % [Time.get_ticks_msec(), n])
 			if n in ["menu_button", "select_button"]:
 				toggle())
+	for h in [["izq", core.left], ["der", core.right]]:
+		var c: XRController3D = h[1]
+		if c == null:
+			continue
+		var tag: String = h[0]
+		print("BTN perfil ", tag, ": ", c.get_tracker_hand(), " ", XRServer.get_tracker(c.tracker).get("profile") if XRServer.get_tracker(c.tracker) else "sin tracker")
+		c.button_released.connect(func(n: String): print("BTN t=%d %s released %s" % [Time.get_ticks_msec(), tag, n]))
+		c.input_vector2_changed.connect(func(n: String, v: Vector2):
+			if v.length() > 0.6:
+				print("BTN t=%d %s vec2 %s %s" % [Time.get_ticks_msec(), tag, n, v.snapped(Vector2(0.1, 0.1))]))
 	if core.right != null:
 		core.right.button_pressed.connect(func(n: String):
-			print("vr_menu: der boton ", n)
+			print("BTN t=%d der pressed %s" % [Time.get_ticks_msec(), n])
 			if open and n == "trigger_click":
 				_click())
 
