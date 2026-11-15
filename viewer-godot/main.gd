@@ -26,6 +26,7 @@ var terrain_mat: ShaderMaterial
 var hazard_on := false
 var hud: Label
 var sun_dir_xz := Vector2(-0.64, -0.76)
+var route_ui: Node # route/route_ui.gd: destino por lat/lon, puntos guardados y guía de ruta (solo modo parche)
 
 
 func layer_entry(id: String) -> Dictionary:
@@ -65,12 +66,18 @@ func ring_gain_at_patch() -> Dictionary:
 
 var W: WorldStreamer
 var world_mode := false
+const DEFAULT_START_SOL := 1063
 var ride_s := 0.0
 var riding := true
 var world_speed := 0.0
 
 
 func _ready() -> void:
+	var peb_layers := 3
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--pebbles="):
+			peb_layers = clampi(int(a.get_slice("=", 1)), 0, 3)
+	RenderingServer.global_shader_parameter_add("pebble_layers", RenderingServer.GLOBAL_VAR_TYPE_INT, peb_layers)
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--world="):
 			_ready_world(a.substr(8))
@@ -98,6 +105,7 @@ func _ready() -> void:
 	yaw = 0.0
 	_cli_camera()
 	_hud()
+	_route_setup()
 	if "--test" in OS.get_cmdline_user_args():
 		print("TEST ok n=%d h(0,0)=%.2f h(30,0)=%.2f" % [n, height_at(0, 0), height_at(30, 0)])
 		get_tree().quit()
@@ -119,12 +127,14 @@ func _ready_world(dir: String) -> void:
 	_setup_xr()
 	_hud()
 	_load_layers(args)
+	_route_setup_world()
 	if not ("--norings" in args):
 		var fr := FarRings.new()
 		fr.albedo = FAR_ALBEDO
 		add_child(fr)
 		fr.setup(dir, W)
-	var start := Vector2.ZERO
+	ride_s = W.route_s_of_sol(DEFAULT_START_SOL)
+	var start := W.route_pos(ride_s)
 	for a in args:
 		if a.begins_with("--sol="):
 			start = W.route_pos(W.route_s_of_sol(int(a.get_slice("=", 1))))
@@ -207,7 +217,7 @@ func _process_world(delta: float) -> void:
 		if riding:
 			world_speed = mv.y * 12.0
 		else:
-			p += (fwd * mv.y + rgt * mv.x) * delta * 2.2
+			p += (fwd * mv.y + rgt * mv.x) * delta * (15.0 if left.get_float("trigger") > 0.5 else 2.2)
 		var tx := right.get_vector2("primary").x
 		if absf(tx) > 0.7 and snap_ready:
 			origin.rotate_y(-signf(tx) * PI / 6.0)
@@ -222,6 +232,8 @@ func _process_world(delta: float) -> void:
 		if Input.is_key_pressed(KEY_A): d.x -= 1
 		if Input.is_key_pressed(KEY_D): d.x += 1
 		var spd := 20.0 if Input.is_key_pressed(KEY_SHIFT) else 2.2
+		if route_ui and route_ui.typing:
+			d = Vector3.ZERO
 		if riding:
 			world_speed = -d.z * 12.0
 		else:
@@ -231,10 +243,55 @@ func _process_world(delta: float) -> void:
 		var rp := W.route_pos(ride_s)
 		p.x = rp.x
 		p.z = rp.y
-	p.y = W.height_at(p.x, p.z)
+	var head_off := cam.global_position - origin.global_position if in_xr else Vector3.ZERO
+	p.y = W.height_at(p.x + head_off.x, p.z + head_off.z)
 	origin.position = p
 	W.focus = p
-	hud.text = "Mars Route Walker · sol %d · %s · %.0f m de ruta · pendiente %.1f° · H: peligro %s · G: bajar/subir del rover\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm" % [W.route_sol_at(ride_s), "en el rover" if riding else "a pie", ride_s, W.slope_deg(p.x, p.z), "ON" if hazard_on else "off"]
+	if route_ui:
+		route_ui.tick(p, cam.global_basis, delta)
+	if _hud_due(delta):
+		hud.text = "Mars Route Walker · sol %d · %s · %.0f m de ruta · pendiente %.1f° · H: peligro %s · G: bajar/subir del rover\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm" % [W.route_sol_at(ride_s), "en el rover" if riding else "a pie", ride_s, W.slope_deg(p.x, p.z), "ON" if hazard_on else "off"] \
+			+ (route_ui.hud_lines(p) if route_ui else "")
+
+
+var _hud_t := 0.0
+
+
+func _hud_due(delta: float) -> bool:
+	# El texto del HUD (formato de cadenas + re-maquetado del Label) se rehace a 10 Hz, no en cada cuadro.
+	_hud_t -= delta
+	if _hud_t > 0.0:
+		return false
+	_hud_t = 0.1
+	return true
+
+
+func _route_setup() -> void:
+	# Guía de ruta + selección de destino (ver route/route_ui.gd). --noroute lo desactiva.
+	if "--noroute" in OS.get_cmdline_user_args():
+		return
+	var guide: Node = load("res://route/guide_path.gd").new()
+	guide.name = "GuidePath"
+	guide.json_path = ""
+	add_child(guide)
+	route_ui = load("res://route/route_ui.gd").new()
+	route_ui.name = "RouteUI"
+	add_child(route_ui)
+	route_ui.setup(self, guide, PATCH, scene)
+
+
+func _route_setup_world() -> void:
+	# Igual que _route_setup() pero para el modo world: la guía queda pegada al terreno de WorldStreamer. --noroute lo desactiva.
+	if "--noroute" in OS.get_cmdline_user_args():
+		return
+	var guide: Node = load("res://route/guide_path.gd").new()
+	guide.name = "GuidePath"
+	guide.json_path = ""
+	add_child(guide)
+	route_ui = load("res://route/route_ui.gd").new()
+	route_ui.name = "RouteUI"
+	add_child(route_ui)
+	route_ui.setup_world(self, guide, W)
 
 
 func _cli_camera() -> void:
@@ -618,8 +675,17 @@ func _setup_player() -> void:
 	right.tracker = &"right_hand"
 	origin.add_child(left)
 	origin.add_child(right)
-	right.button_pressed.connect(func(name: String): if name == "by_button" or name == "ax_button": _toggle_hazard())
-	left.button_pressed.connect(func(name: String): if name == "by_button" or name == "ax_button": _toggle_hazard())
+	right.button_pressed.connect(func(name: String):
+		if name == "by_button":
+			_toggle_ride()
+		elif name == "ax_button":
+			a_down_ms = Time.get_ticks_msec()
+			a_reset_done = false)
+	right.button_released.connect(func(name: String):
+		if name == "ax_button" and a_down_ms > 0:
+			a_down_ms = 0
+			if not a_reset_done:
+				_toggle_hazard())
 
 
 func _setup_xr() -> void:
@@ -642,12 +708,47 @@ func _setup_xr() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
-func _toggle_hazard() -> void:
-	hazard_on = not hazard_on
+var overlay := 0   # 0 normal, 1 pendiente, 2.. vistas de falso color de la capa atmosfera
+
+
+var a_down_ms := 0
+var a_reset_done := false
+var hud_vr_on := true
+var grip_der_down := false
+
+
+func _toggle_hud_vr() -> void:
+	hud_vr_on = not hud_vr_on
+	var atm = get_node_or_null("capa_atmosfera")
+	if atm != null and atm.has_method("alternar_panel") and atm.ver_panel != hud_vr_on:
+		atm.alternar_panel()
+	var mm = get_node_or_null("capa_minimapa")
+	if mm != null and mm.has_method("poner_visible_vr"):
+		mm.poner_visible_vr(hud_vr_on)
+
+
+func _toggle_hazard(to := -1) -> void:
+	## Cicla: normal -> pendiente -> vistas de atmosfera (calor, radiacion, O2, presion, polvo) -> normal.
+	var atm = get_node_or_null("capa_atmosfera")
+	var has_atm: bool = atm != null and atm.has_method("alternar_vista")
+	overlay = (overlay + 1) % (7 if has_atm else 2) if to < 0 else to
+	hazard_on = overlay == 1
 	if world_mode:
 		W.set_hazard(hazard_on)
+	else:
+		terrain_mat.set_shader_parameter("hazard", hazard_on)
+	if has_atm:
+		var want: int = overlay - 2 if overlay >= 2 else -1
+		if atm.vista != want:
+			atm.alternar_vista(atm.vista if want < 0 else want)
+
+
+func _toggle_ride() -> void:
+	if not world_mode:
 		return
-	terrain_mat.set_shader_parameter("hazard", hazard_on)
+	riding = not riding
+	if riding:
+		ride_s = W.route_nearest_s(Vector2(origin.position.x, origin.position.z))
 
 
 func _unhandled_input(e: InputEvent) -> void:
@@ -656,15 +757,23 @@ func _unhandled_input(e: InputEvent) -> void:
 	elif e is InputEventKey and e.pressed and e.keycode == KEY_ESCAPE:
 		get_tree().quit()
 	elif world_mode and e is InputEventKey and e.pressed and e.keycode == KEY_G:
-		riding = not riding
-		if riding:
-			ride_s = W.route_nearest_s(Vector2(origin.position.x, origin.position.z))
+		_toggle_ride()
 	elif e is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
 		yaw -= e.relative.x * 0.003
 		pitch = clampf(pitch - e.relative.y * 0.003, -1.4, 1.4)
 
 
 func _process(delta: float) -> void:
+	if in_xr and right != null:
+		var gd: float = right.get_float("grip")
+		if gd > 0.85 and not grip_der_down:
+			grip_der_down = true
+			_toggle_hud_vr()
+		elif gd < 0.4:
+			grip_der_down = false
+	if a_down_ms > 0 and not a_reset_done and Time.get_ticks_msec() - a_down_ms >= 3000:
+		a_reset_done = true
+		_toggle_hazard(0)
 	if world_mode:
 		_process_world(delta)
 		return
@@ -679,7 +788,7 @@ func _process(delta: float) -> void:
 		fwd = fwd.normalized()
 		var rgt := fwd.cross(Vector3.UP)
 		var mv := left.get_vector2("primary")
-		origin.global_position += (fwd * mv.y + rgt * mv.x) * delta * 2.2
+		origin.global_position += (fwd * mv.y + rgt * mv.x) * delta * (15.0 if left.get_float("trigger") > 0.5 else 2.2)
 		var tx := right.get_vector2("primary").x
 		if absf(tx) > 0.7 and snap_ready:
 			origin.rotate_y(-signf(tx) * PI / 6.0)
@@ -694,13 +803,19 @@ func _process(delta: float) -> void:
 		if Input.is_key_pressed(KEY_A): d.x -= 1
 		if Input.is_key_pressed(KEY_D): d.x += 1
 		var spd := 6.0 if Input.is_key_pressed(KEY_SHIFT) else 2.2
+		if route_ui and route_ui.typing:
+			d = Vector3.ZERO
 		origin.position += Basis(Vector3.UP, yaw) * d * delta * spd
 	var p := origin.position
 	p.x = clampf(p.x, -LIMIT, LIMIT)
 	p.z = clampf(p.z, -LIMIT, LIMIT)
 	p.y = height_at(p.x, p.z)
 	origin.position = p
-	hud.text = "Mars Route Walker · %s · pendiente aquí %.1f° · H: capa de peligro %s\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm · rocas SINTÉTICAS (ilustrativas)" % [str(scene.get("label", "")), slope_deg(p.x, p.z), "ON" if hazard_on else "off"]
+	if route_ui:
+		route_ui.tick(p, cam.global_basis, delta)
+	if _hud_due(delta):
+		hud.text = "Mars Route Walker · %s · pendiente aquí %.1f° · H: capa de peligro %s\nTerreno: USGS/JPL HiRISE DTM 1 m + ortho 25 cm · rocas SINTÉTICAS (ilustrativas)" % [str(scene.get("label", "")), slope_deg(p.x, p.z), "ON" if hazard_on else "off"] \
+			+ (route_ui.hud_lines(p) if route_ui else "")
 
 
 func _farfield() -> void:

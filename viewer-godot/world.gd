@@ -42,6 +42,9 @@ var _idx_cache := {}
 var _blank: ImageTexture
 var _next_update := 0.0
 var _ready_flag := false
+const NN_CELL := 64.0          # m: grilla de vertices de la ruta para route_nearest_s
+const NN_MAX_RING := 16        # mas lejos que ~1 km de la ruta se recorre todo (raro)
+var _nn_grid := {}             # Vector2i -> Array de indices de route_xz
 
 
 func setup(world_dir: String) -> void:
@@ -144,6 +147,7 @@ func _load_route() -> void:
 			route_xz.append(v)
 			route_sol.append(int(s["sol"]))
 			route_s.append(acc)
+	_build_nn_grid()
 
 
 func route_length() -> float:
@@ -170,14 +174,46 @@ func route_s_of_sol(sol: int) -> float:
 
 
 func route_nearest_s(p: Vector2) -> float:
-	var best := 1e30
+	# Mismo resultado que recorrer los ~30k vertices (incluido el desempate por indice menor), pero buscando por anillos en
+	# una grilla de NN_CELL m: lo usan minimapa y atmosfera varias veces por segundo cuando se va a pie.
+	if not _nn_grid.is_empty():
+		var c := Vector2i(floori(p.x / NN_CELL), floori(p.y / NN_CELL))
+		var best := 1e30
+		var bi := -1
+		for r in NN_MAX_RING + 1:
+			for dy in range(-r, r + 1):
+				var paso := 1 if absi(dy) == r else 2 * r      # solo el borde del anillo r
+				var dx := -r
+				while dx <= r:
+					var lista = _nn_grid.get(Vector2i(c.x + dx, c.y + dy))
+					if lista != null:
+						for i: int in lista:
+							var d := route_xz[i].distance_squared_to(p)
+							if d < best or (d == best and i < bi):
+								best = d
+								bi = i
+					dx += maxi(paso, 1)
+			# lo que queda fuera de los anillos 0..r esta a mas de r * NN_CELL de p
+			var lim := r * NN_CELL
+			if bi >= 0 and best < lim * lim:
+				return route_s[bi]
+	var best2 := 1e30
 	var bs := 0.0
 	for i in route_xz.size():
 		var d := route_xz[i].distance_squared_to(p)
-		if d < best:
-			best = d
+		if d < best2:
+			best2 = d
 			bs = route_s[i]
 	return bs
+
+
+func _build_nn_grid() -> void:
+	_nn_grid.clear()
+	for i in route_xz.size():
+		var k := Vector2i(floori(route_xz[i].x / NN_CELL), floori(route_xz[i].y / NN_CELL))
+		if not _nn_grid.has(k):
+			_nn_grid[k] = []
+		(_nn_grid[k] as Array).append(i)
 
 
 # ---------------------------------------------------------------- streaming
@@ -229,6 +265,13 @@ func _post(prio: float, kind: String, t: Dictionary, args: Dictionary) -> void:
 	args["kind"] = kind
 	args["t"] = t
 	args["key"] = key
+	# Lo que lee el hilo se copia aqui (hilo principal): antes el hilo leia t["h1"] del Dictionary del tile mientras
+	# _update/_collect lo reescriben (h1 se libera al alejarse) -> carrera, y un chunk de 1 m con h1 ya vacio = indice fuera de rango.
+	args["k"] = t["k"]
+	if kind == "chunk":
+		args["h"] = t["h1"] if int(args["lod"]) == 1 else t["h5"]
+	elif kind == "far":
+		args["h"] = t["h20"]
 	_mx.lock()
 	_jobs.append([prio, args])
 	_mx.unlock()
@@ -326,8 +369,7 @@ func _worker() -> void:
 		if job.is_empty():
 			continue
 		var a: Dictionary = job[1]
-		var t: Dictionary = a["t"]
-		var k: Vector2i = t["k"]
+		var k: Vector2i = a["k"]
 		match a["kind"]:
 			"h1":
 				a["data"] = _read_f32(dir + "terrain/t1/%d_%d.f32" % [k.x, k.y])
@@ -340,10 +382,9 @@ func _worker() -> void:
 			"chunk":
 				var c: Vector2i = a["c"]
 				var lod: int = a["lod"]
-				var h: PackedFloat32Array = t["h1"] if lod == 1 else t["h5"]
-				a["arr"] = _chunk_arrays(h, lod, c.x * CHUNK_PX, c.y * CHUNK_PX, CHUNK_PX)
+				a["arr"] = _chunk_arrays(a["h"], lod, c.x * CHUNK_PX, c.y * CHUNK_PX, CHUNK_PX)
 			"far":
-				a["arr"] = _chunk_arrays(t["h20"], 20, 0, 0, block)
+				a["arr"] = _chunk_arrays(a["h"], 20, 0, 0, block)
 		_mx.lock()
 		_done.append(a)
 		_mx.unlock()

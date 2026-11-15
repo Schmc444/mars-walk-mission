@@ -1,4 +1,5 @@
 shader_type spatial;
+global uniform int pebble_layers;
 uniform sampler2D ortho : filter_linear_mipmap_anisotropic;
 uniform bool hazard = false;
 uniform float hazard_deg = 15.0;
@@ -12,9 +13,24 @@ uniform float o_std = 0.15;
 uniform float ring_gain = 1.0;
 uniform vec2 shadow_dir = vec2(-0.64, -0.76); // horizontal direction the sunlight travels (x, z)
 varying float vdist;
+// --- capa puntos_interes: recortes del terreno bajo el hueco de la perforacion y el parche (apagados por defecto) ---
+uniform vec4 rec_a = vec4(0.0);     // hueco: xz del centro (x,y) y activo (z>0.5)
+uniform vec3 rec_a_m = vec3(0.0);   // forma cuadratica (sxx, sxy, syy)/R^2: dentro si w^T S w < 1
+uniform vec4 rec_b = vec4(0.0);     // parche abrasionado (igual)
+uniform vec3 rec_b_m = vec3(0.0);
+uniform vec4 rec_c = vec4(0.0);     // corte: xz del centro (x,y) y normal xz (z,w)
+uniform float rec_c_r = 0.0;        // radio del semidisco del corte (0 = apagado)
+varying vec2 hxa;                   // posicion xz relativa a cada recorte, calculada SIN restar numeros grandes (precision)
+varying vec2 hxb;
+varying vec2 hxc;
 uniform vec2 tile_origin = vec2(0.0);   // world xz of the mesh origin (tiled world); wpos stays in world metres
 uniform float planet_r = 0.0;           // >0: drop the far ground below the horizon like the ring meshes
 void vertex() {
+  // (traslacion del modelo - centro del recorte) es una resta exacta de dos floats cercanos; luego se suma el vertice local
+  vec2 m3 = MODEL_MATRIX[3].xz;
+  hxa = VERTEX.xz + (m3 - rec_a.xy);
+  hxb = VERTEX.xz + (m3 - rec_b.xy);
+  hxc = VERTEX.xz + (m3 - rec_c.xy);
   slope = degrees(acos(clamp(NORMAL.y, 0.0, 1.0)));
   wpos = VERTEX.xz + tile_origin;
   if (planet_r > 0.0) {
@@ -56,8 +72,14 @@ float peb(vec2 p, float cell, float ang, float dens, out vec2 grad, out float to
   return 1.0 - u2;
 }
 void fragment() {
+  if (rec_a.z > 0.5) { vec2 w = hxa; if (dot(w, vec2(rec_a_m.x * w.x + rec_a_m.y * w.y, rec_a_m.y * w.x + rec_a_m.z * w.y)) < 1.0) discard; }
+  if (rec_b.z > 0.5) { vec2 w = hxb; if (dot(w, vec2(rec_b_m.x * w.x + rec_b_m.y * w.y, rec_b_m.y * w.x + rec_b_m.z * w.y)) < 1.0) discard; }
+  if (rec_c_r > 0.0) { vec2 w = hxc; if (length(w) < rec_c_r && dot(w, rec_c.zw) > 0.0) discard; }
   float g = texture(ortho, UV).r;
-  float d = vn(wpos*6.0)*0.5 + vn(wpos*23.0)*0.3 + vn(wpos*91.0)*0.2;
+  float v6 = vn(wpos*6.0);
+  float v23 = vn(wpos*23.0);
+  float near = 1.0 - smoothstep(25.0, 70.0, length(VERTEX));
+  float d = v6*0.5 + v23*0.3 + (near > 0.0 ? vn(wpos*91.0) : 0.0)*0.2;
   float c = clamp((g - 0.227) / 0.313, 0.0, 1.0);
   vec3 dark = vec3(0.07, 0.042, 0.027);
   vec3 bright = vec3(0.3, 0.16, 0.08);
@@ -66,8 +88,7 @@ void fragment() {
     dark = far_albedo * ring_gain * 0.6;
     bright = far_albedo * ring_gain * 1.3;
   }
-  float near = 1.0 - smoothstep(25.0, 70.0, length(VERTEX));
-  d = mix(vn(wpos*6.0)*0.5 + vn(wpos*23.0)*0.3 + 0.1, d, near);
+  d = mix(v6*0.5 + v23*0.3 + 0.1, d, near);
   vec3 base = mix(dark, bright, c) * (0.85 + 0.3 * d);
   // metre-scale tint: greyer basaltic sand vs redder dust, plus a faint wind streak direction
   float hv = vn(wpos * vec2(0.22, 0.5) + 3.1) * 0.6 + vn(wpos * 1.4 + 9.0) * 0.4;
@@ -89,12 +110,18 @@ void fragment() {
   vec3 W = vec3(1.0) - smoothstep(L * 0.3, L * 0.9, vec3(fw));
   vec2 gs = vec2(0.0); float hsum = 0.0; float aot = 1.0; float pc = 0.0; float pw = 0.0;
   vec2 gg; float tn; float oc; float h;
+  if (W.x > 0.0 && pebble_layers >= 3) {
   h = peb(wp, L.x, 0.41, mix(0.15, 0.95, D), gg, tn, oc) * W.x;
   gs += gg * W.x; aot *= mix(1.0, oc, W.x); pc += h * mix(0.5, 1.3, tn); pw += h;
+  }
+  if (W.y > 0.0 && pebble_layers >= 2) {
   h = peb(wp + 11.3, L.y, 1.93, mix(0.06, 0.7, D), gg, tn, oc) * W.y;
   gs += gg * W.y; aot *= mix(1.0, oc, W.y); pc += h * mix(0.45, 1.35, tn); pw += h;
+  }
+  if (W.z > 0.0 && pebble_layers >= 1) {
   h = peb(wp - 5.7, L.z, 4.12, mix(0.01, 0.4, D * D), gg, tn, oc) * W.z;
   gs += gg * W.z; aot *= mix(1.0, oc, W.z); pc += h * mix(0.45, 1.3, tn); pw += h;
+  }
   NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(-gs.x, 0.0, -gs.y, 0.0)).xyz);
   // pebble albedo: dark grey basalt to dust-coated tan; sharp-ish so the clast reads as a stone
   float on = smoothstep(0.0, 0.15, pw);
