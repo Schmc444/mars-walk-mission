@@ -86,7 +86,7 @@ func _exit_tree() -> void:
 	server.stop()
 
 
-const PAGINA := "<!doctype html><meta charset=utf-8><title>Mars Walk Mission</title><body style='margin:0;background:#000'><img src=/stream style='width:100vw;height:100vh;object-fit:contain'></body>"
+const PAGINA := "<!doctype html><meta charset=utf-8><title>Mars Walk Mission</title><body style='margin:0;background:#000'><img id=i style='width:100vw;height:100vh;object-fit:contain'><script>var i=document.getElementById('i'),n=0;function s(){i.src='/snap?'+(n++)}i.onload=function(){setTimeout(s,15)};i.onerror=function(){setTimeout(s,500)};s()</script></body>"
 
 
 func _servir() -> void:
