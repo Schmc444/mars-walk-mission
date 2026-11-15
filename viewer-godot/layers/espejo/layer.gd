@@ -1,6 +1,6 @@
 extends Node3D
 # Capa espejo: con --espejo sirve la vista del visor como MJPEG por HTTP para proyectarla desde otro equipo.
-# Abrir http://<ip-del-visor>:8090/ en un navegador (pantalla completa). Opciones: --espejo-puerto=N, --espejo-fps=N, --espejo-ancho=N
+# Abrir http://<ip-del-visor>:8090/ en un navegador (pantalla completa). Opciones: --espejo-puerto=N, --espejo-fps=N, --espejo-ancho=N, --espejo-bind=IP
 
 var port := 8090
 var fps := 15.0
@@ -16,6 +16,8 @@ var mutex := Mutex.new()
 var pendiente: Image = null
 var ultimo_jpg := PackedByteArray()
 var salir := false
+var bind := "*"
+var espera := 0
 
 
 func setup(_w: WorldStreamer, c: Node) -> void:
@@ -29,20 +31,21 @@ func setup(_w: WorldStreamer, c: Node) -> void:
 			port = int(a.get_slice("=", 1))
 		elif a.begins_with("--espejo-fps="):
 			fps = clampf(float(a.get_slice("=", 1)), 1.0, 60.0)
+		elif a.begins_with("--espejo-bind="):
+			bind = a.get_slice("=", 1)
 		elif a.begins_with("--espejo-ancho="):
 			ancho = clampi(int(a.get_slice("=", 1)), 320, 3840)
 	alto = ancho * 9 / 16
 	vp = SubViewport.new()
 	vp.size = Vector2i(ancho, alto)
-	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	vp.msaa_3d = Viewport.MSAA_2X
+	vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	add_child(vp)
 	cam2 = Camera3D.new()
 	cam2.far = 150000.0
 	cam2.fov = 80.0
 	vp.add_child(cam2)
 	cam2.global_transform = core.cam.global_transform
-	if server.listen(port) != OK:
+	if server.listen(port, bind) != OK:
 		push_warning("espejo: no pude abrir el puerto %d" % port)
 		set_process(false)
 		return
@@ -56,16 +59,21 @@ func _process(dt: float) -> void:
 	var xf: Transform3D = core.cam.global_transform
 	var k := 1.0 - exp(-10.0 * dt)
 	cam2.global_transform = Transform3D(cam2.global_basis.orthonormalized().slerp(xf.basis.orthonormalized(), k), xf.origin)
+	if espera > 0:
+		espera -= 1
+		if espera == 0:
+			var img := vp.get_texture().get_image()
+			if img != null:
+				mutex.lock()
+				pendiente = img
+				mutex.unlock()
+		return
 	acumulado += dt
 	if acumulado < 1.0 / fps:
 		return
 	acumulado = 0.0
-	var img := vp.get_texture().get_image()
-	if img == null:
-		return
-	mutex.lock()
-	pendiente = img
-	mutex.unlock()
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	espera = 2
 
 
 func _exit_tree() -> void:
