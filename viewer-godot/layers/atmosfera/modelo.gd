@@ -15,7 +15,7 @@ const LS_ANCLAS := [[0.0, 5.0], [16.0, 13.3], [308.0, 150.7], [313.0, 153.0], [5
 
 # Valores de referencia
 const RAD_GALE := 0.67              # mSv/dia, dosis equivalente GCR en Gale (Hassler et al. 2013, RAD/Curiosity)
-const RAD_NASA_SUP := 0.8           # mSv/dia, tope de diseno GCR para sistemas en superficie (NASA OCHMO)
+const RAD_NASA_SUP := 0.9           # mSv/dia, tope de diseno GCR en superficies planetarias (NASA-STD-3001 Vol 1 Rev C, OCHMO-TB-020 Rev G 2025)
 const RAD_CARRERA := 600.0          # mSv, limite de carrera NASA-STD-3001
 const O2_FRAC := 0.0016             # 0.16 % O2 en el aire (SAM/Curiosity)
 const O2_TIERRA := 21200.0          # Pa, presion parcial de O2 a nivel del mar en la Tierra

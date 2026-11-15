@@ -1,0 +1,468 @@
+\documentclass[conference]{IEEEtran}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot,es-noshorthands,es-tabla]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage[hidelinks]{hyperref}
+\usepackage{xurl}
+\usepackage{newunicodechar}
+\newunicodechar{°}{\ensuremath{^\circ}}
+\renewcommand\IEEEkeywordsname{Palabras clave}
+
+\begin{document}
+
+\title{Capa de atmósfera para un simulador de la ruta de \emph{Perseverance} en el cráter Jezero: modelo físico, incertidumbre y cálculo de rutas}
+
+\author{\IEEEauthorblockN{\textit{Nombre completo del autor}}
+\IEEEauthorblockA{\textit{Escuela / carrera, universidad}\\
+\textit{correo institucional}}}
+
+\maketitle
+
+\begin{abstract}
+Se describe la capa \emph{Atmósfera} de un simulador de realidad virtual de la ruta de \emph{Perseverance} en el cráter Jezero, Marte. En cada punto del terreno real (modelo de elevación HiRISE de 1\,m) la capa calcula la fracción de oxígeno, la dosis de radiación, la temperatura del aire, la presión y la opacidad del polvo. Los valores base vienen de mediciones publicadas de MEDA, RAD y SAM, y la variación se modela con leyes físicas que se deducen en el texto: la fórmula barométrica a partir del equilibrio hidrostático, la ley de Beer--Lambert y la ley del coseno de Lambert. Se presentan los cálculos paso a paso en el punto de partida de la ruta del equipo (sol 1063) y se propaga la incertidumbre de las entradas, de primer orden y con Monte Carlo: la presión queda en $744.7\pm14.8$\,Pa, y su error se debe casi por completo a la presión de la estación, no a la altura de escala. Se analiza la pendiente por diferencias centrales: converge como $O(\Delta^2)$ en terreno suave, y es una media del gradiente sobre una ventana de ancho $2\Delta$, lo que la hace depender de la escala. Por último se calculan rutas entre los sols 1063 y 1116 con una función de costo y A*: la recta entre los extremos es inviable (18°), el camino óptimo mide 335\,m, no existe camino con pendientes de 9° o menos, y en este tramo la elección de ruta la dominan el terreno y la distancia, no la atmósfera.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Marte, Jezero, MEDA, modelo atmosférico, propagación de incertidumbre, Monte Carlo, diferencias finitas, A*.
+\end{IEEEkeywords}
+
+\section{Introducción}
+El simulador \emph{Mars Route Walker} reconstruye la ruta de \emph{Perseverance} sobre el modelo de elevación HiRISE de 1\,m y permite recorrerla en realidad virtual. Sobre ese núcleo, cada integrante del equipo agrega una \emph{capa}. La capa Atmósfera responde a la pregunta \emph{¿cómo es el aire donde estoy parado?} con un panel de cinco valores y cinco vistas de falso color, implementadas en Godot~4.7~\cite{godot}. El equipo trabaja sobre el tramo \textbf{A = sol 1063} a \textbf{B = sol 1116}.
+
+\textbf{Alcance del modelo.} Los valores base y su ciclo estacional se toman de la NASA y de publicaciones de los equipos de sus instrumentos: MEDA en \emph{Perseverance}~\cite{rodriguezmanfredi2021,nasa_instrumentos}, y RAD y SAM en \emph{Curiosity}. En la realidad, la radiación, el oxígeno y el polvo de fondo casi no cambian en pocos kilómetros; por eso su variación espacial es \emph{sintética} (ruido suave de amplitud acotada) y sirve para ilustrar. La excepción es la presión, cuya dependencia con la altura es física. La Tabla~\ref{tab:fuentes} resume qué es medido y qué es sintético. Todos los números de este informe salen de la herramienta de análisis de la capa (\texttt{informe/analisis\_ruta.gd}), que usa las mismas funciones que el panel.
+
+\begin{table}[t]
+\caption{Valores base, fuentes y naturaleza de la variación espacial}
+\label{tab:fuentes}
+\centering\small
+\begin{tabular}{@{}p{1.25cm}p{3.05cm}p{3.0cm}@{}}
+\toprule
+Parámetro & Base (fuente) & Variación espacial \\ \midrule
+Presión & Ciclo estacional MEDA~\cite{harri2024}; $H$ de la NASA~\cite{nasa_glenn,nasa_factsheet} & Física: $e^{-h/H}$ \\
+O$_2$ & 0.16\,\% del aire, SAM~\cite{trainer2019,nasa_sam2019} & Sintética $\pm12$\,\% \\
+Radiación & 0.67\,mSv/día, RAD~\cite{hassler2014,nasa_rad2013} & Presión~\cite{guo2017} + sintética $\pm10$\,\% \\
+Temperatura & Ciclo diario MEDA~\cite{munguira2023,rodriguezmanfredi2021} & Ladera al sol / hondonada (base física) \\
+Polvo $\tau$ & MEDA/TIRS~\cite{smith2023}, tormentas~\cite{sanchezlavega2025} & Parches sintéticos ($\le0.15$) + remolinos~\cite{hueso2023,toledo2023,jackson2021,nasa_winds2022} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Tiempo: sol, estación y hora local}
+\subsection{Del sol a la longitud solar $L_s$}
+La estación se expresa con la longitud solar $L_s$. Se interpola linealmente entre anclas publicadas~\cite{harri2024,sanchezlavega2025} dentro de un año marciano de 668.6 sols:
+\begin{equation}
+L_s(s) = L_{s,i} + \frac{s' - s_i}{s_{i+1}-s_i}\,(L_{s,i+1}-L_{s,i}),\quad s' = s \bmod 668.6 .
+\end{equation}
+Para el sol 1063: $s' = 394.4$, entre las anclas $(313, 153°)$ y $(565, 308°)$, así que $L_s = 153 + 81.4\cdot 155/252 = \mathbf{203.07°}$ (otoño del hemisferio norte).
+
+\subsection{Hora local a partir del sol de la escena}
+El sol de la escena está fijo a $e = 35°$ de elevación, hacia el este. En el equinoccio, la trigonometría esférica da $\sin e = \cos\varphi\cos H$, con $\varphi$ la latitud y $H$ el ángulo horario. Con $\varphi = 18.4°$: $\cos H = 0.5736/0.9489 = 0.6045$, de donde $H = 52.8° = 3.52$\,h, y la hora local es $12 - 3.52 = \mathbf{08{:}29}$.
+
+\section{Modelo físico y cálculos en el punto A}
+En A: $x=-6965.9$\,m, $z=-2779.1$\,m, altura relativa $h=189.5$\,m.
+
+\subsection{Presión: serie de Fourier y fórmula barométrica}
+El ciclo estacional que mide MEDA~\cite{harri2024} es periódico en $L_s$ (período de un año), con un mínimo y un máximo principales: el CO$_2$ se congela y sublima en los polos. Una función periódica suave se aproxima bien con pocos términos de su serie de Fourier; se usan el armónico anual y el semestral:
+\begin{equation}
+p_0(L_s) = a_0 + a_1\cos(L_s-\phi_1) + a_2\cos\big(2(L_s-\phi_2)\big),
+\end{equation}
+con $a_0 = 715$, $a_1 = 45$, $a_2 = 25$\,Pa, $\phi_1 = 255°$ y $\phi_2 = 50°$, ajustados a la forma de la curva publicada. Para $L_s = 203.07°$: $p_0 = 715 + 45(0.6168) + 25(0.5899) = \mathbf{757.49}$\,Pa.
+
+\emph{Variación con la altura.} En equilibrio hidrostático una capa de aire de espesor $dh$ soporta el peso de la columna que tiene encima, $dp = -\rho g\,dh$. Con la ecuación de gas ideal, $\rho = pM/(RT)$:
+\begin{equation}
+\frac{dp}{dh} = -\frac{Mg}{RT}\,p = -\frac{p}{H}\;\Rightarrow\; p(h) = p_0\, e^{-h/H},\quad H = \frac{RT}{Mg}.
+\end{equation}
+Es una ecuación diferencial lineal de primer orden con solución exponencial, suponiendo $T$ constante en los pocos cientos de metros considerados. Con los valores de la hoja de datos de Marte de la NASA~\cite{nasa_factsheet} ---gravedad $g = 3.73$\,m/s$^2$, masa molar media $M = 43.49$\,g/mol y temperatura media $T \approx 214$\,K--- y $R = 8.314$\,J/(mol\,K): $H = 1779.2/0.16222 = 10.97$\,km, de acuerdo con los 11.0\,km que reporta esa misma hoja. El modelo usa $H = 11.1$\,km, la altura de escala del modelo atmosférico de NASA Glenn~\cite{nasa_glenn}, $p = 0.699\,e^{-0.00009h}$\,kPa, es decir $H = 1/0.00009 = 11\,111$\,m; la diferencia de 1.2\,\% queda dentro de la incertidumbre de la Sec.~\ref{sec:incert}. En A:
+$p = 757.49\, e^{-189.5/11100} = \mathbf{744.67}$\,Pa, el 0.735\,\% de la presión al nivel del mar en la Tierra y el 11.8\,\% del límite de Armstrong (6.3\,kPa). La pendiente local es $dp/dh = -p/H = -0.067$\,Pa/m: unos $-6.7$\,Pa por cada 100\,m que se sube.
+
+\subsection{Oxígeno: fracción y presión parcial}
+SAM midió en Gale un aire con 95\,\% de CO$_2$, 2.6\,\% de N$_2$, 1.9\,\% de Ar, 0.16\,\% de O$_2$ y 0.06\,\% de CO, con un aumento estacional del O$_2$ de hasta 30\,\%~\cite{trainer2019,nasa_sam2019}; la hoja de datos de la NASA da los mismos valores~\cite{nasa_factsheet}. El modelo usa
+\begin{equation}
+f_{O_2}(L_s) = 0.0016\left[1 + 0.2\,e^{-\left(\frac{L_s-75°}{45°}\right)^2}\right].
+\end{equation}
+En $L_s = 203.07°$ el término gaussiano vale $e^{-8.10} \approx 3\times10^{-4}$, así que $f_{O_2} = 0.0016$ y el panel muestra \textbf{0.16\,\%}. Por la ley de Dalton, cada gas aporta a la presión total en proporción a su fracción molar; con una variación sintética $n_O\in[-1,1]$:
+\begin{equation}
+p_{O_2} = f_{O_2}\, p\,(1 + 0.12\,n_O) \approx 0.0016 \cdot 744.67 = \mathbf{1.19}\ \text{Pa},
+\end{equation}
+frente a $\approx 21\,200$\,Pa en la Tierra: el 0.0056\,\%. Es una lectura simulada: la fracción medida proviene de \emph{Curiosity} (cráter Gale); \emph{Perseverance} no mide la composición del aire, y MOXIE produjo O$_2$ a partir de CO$_2$: 122\,g en total, hasta 12\,g/h~\cite{nasa_instrumentos}.
+
+\subsection{Radiación: blindaje por la atmósfera}
+RAD midió en Gale una dosis equivalente de 0.67\,mSv/día entre agosto de 2012 y junio de 2013~\cite{hassler2014,nasa_rad2013}. La dosis baja cuando hay más masa de aire encima~\cite{guo2017}, y la masa por unidad de área de la columna es proporcional a la presión ($p = g\,m/A$). El modelo, lineal alrededor de la presión de referencia de 820\,Pa y con un coeficiente ilustrativo $k = 0.3$, es
+\begin{equation}
+D = D_0\left(1 - k\,\frac{p-820}{820}\right) b\,(1 + 0.10\,n_D),
+\end{equation}
+con $b = 1 - 0.10\min(\Delta h_{\text{hond}}/15, 1)$ el blindaje de una hondonada (el terreno tapa parte del cielo). En A, la parte por presión vale $0.67(1 + 0.3\cdot0.0919) = 0.6885$ y los factores locales 0.989, así que $D = \mathbf{0.681}$\,mSv/día: el 76\,\% del tope de diseño de 0.9\,mSv/día para superficies planetarias de NASA-STD-3001 Vol.~1 Rev.~C~\cite{nasa_ochmo2025}.
+
+\subsection{Temperatura del aire a 1.5\,m}
+Los sensores de temperatura del aire de MEDA~\cite{rodriguezmanfredi2021} miden aproximadamente $-85$\,°C de madrugada y $-20$\,°C después del mediodía~\cite{munguira2023}. La forma del ciclo diario es un semiciclo de coseno entre el mínimo (05{:}30) y el máximo (13{:}30), y otro más lento de vuelta:
+\begin{equation}
+F(h)=\begin{cases}-\cos\!\big(\pi\frac{h-5.5}{8}\big), & 5.5\le h\le 13.5\\[2pt] \cos\!\big(\pi\frac{h'-13.5}{16}\big), & \text{en otro caso}\end{cases}
+\end{equation}
+con $h' = h$ o $h+24$. La función es continua y vale $-1$ en el mínimo y $+1$ en el máximo. La temperatura base es
+\begin{equation}
+T_b = \underbrace{220 + 6\cos(L_s - 250°)}_{\bar T} + \underbrace{\frac{33}{1 + 0.4\max(\tau-0.5,0)}}_{A}\,F(h),
+\end{equation}
+donde el polvo reduce la amplitud $A$: absorbe luz de día y emite infrarrojo de noche, como se observó en tormentas. En A: $\bar T = 224.10$\,K, $A = 31.13$\,K y $F(8.48) = -0.390$, así que $T_b = 211.96$\,K. Los efectos del lugar (Sec.~\ref{sec:lambert}) suman $+0.01$\,K: $T = \mathbf{-61.2}$\,°C.
+
+\subsection{Polvo: ley de Beer--Lambert}
+Al atravesar una capa de espesor $ds$, la luz pierde una fracción proporcional a lo que encuentra: $dI = -\kappa(s)\,I\,ds$, con $\kappa$ el coeficiente de extinción. Al integrar,
+\begin{equation}
+I = I_0\, e^{-\tau},\qquad \tau = \int \kappa(s)\,ds,
+\end{equation}
+donde $\tau$ es la opacidad óptica. Con el Sol en lo alto, la fracción bloqueada es $1-e^{-\tau}$. En temporada de polvo, MEDA/TIRS mide en Jezero $\tau \approx 0.65$~\cite{smith2023} (las tormentas del año marciano 36~\cite{sanchezlavega2025} no caen en este tramo), así que se bloquea $1 - e^{-0.65} = 0.478$, es decir el \textbf{47.8\,\%}. La neblina de la capa evalúa esta misma integral por cada píxel con una suma de Riemann de 24 pasos a lo largo del rayo.
+
+\emph{Remolinos.} La tasa medida en Jezero es $\rho_d = 2.5$ por km$^2$ por sol~\cite{hueso2023,toledo2023}, repartida según la actividad horaria $a(h)$ medida por MEDA~\cite{jackson2021} (pico de 1.49 encuentros/h a las 13{:}00, suma diaria 6.57). Con una vida supuesta de $L = 5$\,min, la densidad instantánea es
+\begin{equation}
+n(h) = \rho_d\,\frac{a(h)}{\sum a}\,\frac{L}{60} = 2.5\cdot\frac{1.49}{6.57}\cdot\frac{5}{60} = 0.047\ \text{km}^{-2}
+\end{equation}
+a las 13{:}00, y $n = 0$ a las 08{:}29: a esa hora no hay remolinos, igual que en Jezero. Es coherente con lo que reporta la NASA: al menos cuatro remolinos pasan junto al rover en un día típico, y más de uno por hora poco después del mediodía~\cite{nasa_winds2022}.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.49\textwidth]{figuras/escena_panel.jpg}\hfill
+\includegraphics[width=0.49\textwidth]{figuras/vista_calor.jpg}\\[3pt]
+\includegraphics[width=0.49\textwidth]{figuras/vista_radiacion.jpg}\hfill
+\includegraphics[width=0.49\textwidth]{figuras/vista_oxigeno.jpg}
+\caption{Punto A (sol 1063). Arriba: escena con el panel de la capa (izq.) y vista de calor, tecla P (der.). Abajo: vista de radiación, tecla O (izq.) y vista de oxígeno, tecla K (der.). Paleta común: azul = menos del parámetro, magenta = más; escala automática entre los percentiles 5 y 95 del mapa.}
+\label{fig:vistas}
+\end{figure*}
+
+\section{Incertidumbre}\label{sec:incert}
+Los valores anteriores dependen de entradas que no se conocen con exactitud. Para una magnitud $y = f(x_1,\dots,x_n)$ con entradas independientes, la propagación de primer orden (serie de Taylor truncada) da
+\begin{equation}
+\sigma_y^2 \approx \sum_i \left(\frac{\partial f}{\partial x_i}\right)^2 \sigma_{x_i}^2 .
+\end{equation}
+Las incertidumbres de entrada ($1\sigma$) son: $\sigma_{p_0} = 15$\,Pa (supuesta: diferencia típica entre el ajuste de dos armónicos y la curva de MEDA); $\sigma_H = 5$\,\% (temperaturas entre 200 y 230\,K); $\sigma_f = 10$\,\% en $f_{O_2}$ (supuesta); $\sigma_{D_0} = 19$\,\% (la incertidumbre relativa de la dosis absorbida reportada por RAD, $0.210\pm0.040$\,mGy/día~\cite{hassler2014}); y $k = 0.3\pm0.1$.
+
+\emph{Presión.} Las derivadas parciales son $\partial p/\partial p_0 = e^{-h/H} = 0.983$ y $\partial p/\partial H = p\,h/H^2 = 1.145\times10^{-3}$\,Pa/m, de modo que
+\begin{align}
+\sigma_p &= \sqrt{(0.983\cdot15)^2 + (1.145\times10^{-3}\cdot555)^2}\nonumber\\
+&= \sqrt{14.75^2 + 0.64^2} = 14.76\ \text{Pa}.
+\end{align}
+La altura de escala aporta solo 0.64\,Pa: con $h \ll H$, la exponencial es casi lineal y un error en $H$ apenas cambia el resultado. \textbf{La incertidumbre la domina la presión de la estación}, así que la mejora más útil es usar los datos diarios de MEDA.
+
+\emph{Oxígeno y dosis.} Para un producto, los errores relativos se suman en cuadratura: $\sigma_{p_{O_2}}/p_{O_2} = \sqrt{0.10^2 + 0.0198^2} = 10.2$\,\%. La dosis la domina $D_0$ (19\,\%); el blindaje por presión aporta menos de 1\,\%.
+
+\emph{Verificación con Monte Carlo.} Se tomaron 20\,000 muestras de las entradas con distribución normal y se evaluó el modelo completo. La Tabla~\ref{tab:incert} muestra que coincide con la aproximación de primer orden hasta en un 1\,\%, lo que confirma que el modelo es casi lineal en el rango de las incertidumbres.
+
+\begin{table}[t]
+\caption{Incertidumbre en el punto A ($1\sigma$)}
+\label{tab:incert}
+\centering\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Magnitud & Valor & $\sigma$ (1.\textsuperscript{er} orden) & $\sigma$ (Monte Carlo) \\ \midrule
+Presión (Pa) & 744.67 & 14.76 & 14.75 \\
+$p_{O_2}$ (Pa) & 1.191 & 0.121 & 0.121 \\
+Dosis (mSv/día) & 0.688 & 0.131 & 0.130 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Análisis del terreno}\label{sec:terreno}
+\subsection{Pendiente por diferencias centrales}
+La capa de peligro del núcleo (tecla H) pinta de rojo el terreno empinado y el cálculo de rutas prohíbe pendientes mayores a 15°. Ambos necesitan el gradiente de la altura $h(x,z)$, que se estima con diferencias centrales:
+\begin{equation}
+D_\Delta = \frac{h(x+\Delta)-h(x-\Delta)}{2\Delta}.
+\end{equation}
+Desarrollando $h(x\pm\Delta)$ en serie de Taylor, los términos pares se cancelan:
+\begin{equation}
+D_\Delta = h'(x) + \frac{\Delta^2}{6}h'''(x) + O(\Delta^4),
+\end{equation}
+así que el error es $O(\Delta^2)$: al duplicar $\Delta$, el error se multiplica por 4. La pendiente y la normal del terreno son
+\begin{equation}
+\theta = \arctan\lVert\nabla h\rVert,\qquad \mathbf n = \frac{(-h_x,\,1,\,-h_z)}{\sqrt{1+h_x^2+h_z^2}}.
+\end{equation}
+
+\subsection{Convergencia y dependencia de la escala}
+Por el teorema fundamental del cálculo, la diferencia central es exactamente un promedio:
+\begin{equation}
+D_\Delta = \frac{1}{2\Delta}\int_{x-\Delta}^{x+\Delta} h'(u)\,du,
+\end{equation}
+es decir, la pendiente media en una ventana de ancho $2\Delta$. La Tabla~\ref{tab:deriv} lo muestra en el terreno real. En A, el terreno es suave a escala de metros: al duplicar el paso, los cambios sucesivos crecen 3.7 y 3.3 veces, cerca del 4 que predice $O(\Delta^2)$. Con extrapolación de Richardson, $\theta_0 \approx (4\theta_{0.5} - \theta_{1})/3 = 9.14°$. En un punto cercano con una roca o escarpe, en cambio, la pendiente cae de 33.5° con $\Delta = 0.5$\,m a 1.6° con $\Delta = 16$\,m: la ventana promedia el escarpe con el terreno plano de alrededor. \textbf{La pendiente no es única: depende de la escala}. Para la seguridad de quien camina importa la escala de un paso (1--2\,m); el núcleo usa 1\,m para el número del HUD.
+
+\begin{table}[t]
+\caption{Pendiente (°) según el paso $\Delta$ de la diferencia central}
+\label{tab:deriv}
+\centering\small
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+$\Delta$ (m) & 0.5 & 1 & 2 & 4 & 8 & 16 \\ \midrule
+Punto A & 9.18 & 9.29 & 9.70 & 11.06 & 13.20 & 12.06 \\
+Escarpe & 33.52 & 32.35 & 28.25 & 20.05 & 10.56 & 1.59 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Insolación de laderas: ley del coseno de Lambert}\label{sec:lambert}
+La potencia que recibe una superficie es proporcional al coseno del ángulo entre su normal y la dirección del Sol $\hat{\mathbf s}$. Respecto a un suelo plano, la insolación relativa de una ladera es $I = \max(\mathbf n\cdot\hat{\mathbf s},0)/\hat s_y - 1$, y la temperatura del lugar es
+\begin{equation}
+T = T_b + 4\,\mathrm{clip}(I)\,d - 5\,\mathrm{clip}\!\left(\tfrac{\Delta h_{\text{hond}}}{15}\right)(1-d) + 1.5\,n_T,
+\end{equation}
+con $d$ el factor de día: de día se calientan las laderas que miran al Sol, y de noche el aire frío, más denso, baja a las hondonadas. Se usa el gradiente con $\Delta = 20$\,m, la escala del mapa de la capa.
+
+\section{Cálculo de rutas}
+\subsection{Aproximación lineal por tramos}
+La ruta de \emph{Perseverance} es una polilínea: cada segmento es la recta tangente (secante) local al camino, y su longitud es $\ell = \sum_k\lVert\mathbf p_{k+1}-\mathbf p_k\rVert$. Entre A y B mide unos 570\,m; remuestreada cada 10\,m mide 477\,m, porque el remuestreo elimina las maniobras de menos de 10\,m.
+
+\subsection{Función de costo y A*}
+El costo de un camino $\Gamma$ es una integral de línea:
+\begin{equation}
+J = \int_\Gamma c(\mathbf x)\,ds \approx \sum_k \Delta s_k\, c(\mathbf x_k),
+\end{equation}
+\begin{equation}
+c = 1 + \lambda\, e + \left(\frac{\theta}{15°}\right)^2,\qquad e = \frac{\hat D + \hat O + \hat\tau}{3},
+\end{equation}
+donde $e\in[0,1]$ es una exposición normalizada (dosis, falta de O$_2$ y polvo, con las escalas de la capa) y $\lambda$ su peso; se usa $\lambda = 3$. El 1 hace que $J$ crezca con la distancia, el término cuadrático penaliza la pendiente de forma creciente, y además las celdas con $\theta > 15°$ se prohíben. Sobre una grilla de 10\,m que cubre el tramo con 150\,m de margen ($64\times40$ celdas, 514 prohibidas) se aplica A*~\cite{hart1968}. A* expande nodos por $f = g + h$ (costo acumulado más una estimación hasta B); con la distancia euclidiana como $h$ y $c \ge 1$, la estimación nunca supera el costo real (es \emph{admisible}), así que el camino encontrado es el de costo mínimo en la grilla. Los caminos se evalúan con el mismo sol de referencia (1089.5) a las 08{:}29.
+
+\begin{table}[t]
+\caption{Comparación de caminos entre A (sol 1063) y B (sol 1116)}
+\label{tab:rutas}
+\centering\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Camino & $\ell$ (m) & $J$ & $\theta_{\max}$ & Dosis (mSv) \\ \midrule
+Ruta real & 477 & 1091 & 11.0° & 0.00359 \\
+Recta A$\to$B & 320 & 767 & \textbf{18.0°} & 0.00240 \\
+Óptima (A*) & 335 & \textbf{752} & 11.3° & 0.00250 \\
+\bottomrule
+\end{tabular}
+\\[2pt]\footnotesize Dosis: caminando a 1\,m/s. $p_{O_2}$ mínima $\approx 1.22$\,Pa en los tres.
+\end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=\columnwidth, height=5.0cm, axis equal image,
+  xlabel={$x$ (m, este)}, ylabel={$-z$ (m, norte)},
+  legend style={font=\scriptsize, at={(0.5,1.03)}, anchor=south, legend columns=4}, tick label style={font=\scriptsize}, label style={font=\small}]
+\addplot[thick, blue] table[x=x, y expr=-\thisrow{z}, col sep=comma] {datos/ruta_real.csv};
+\addplot[thick, red, dashed] table[x=x, y expr=-\thisrow{z}, col sep=comma] {datos/ruta_recta.csv};
+\addplot[thick, black!70!green] table[x=x, y expr=-\thisrow{z}, col sep=comma] {datos/ruta_optima.csv};
+\legend{Real, Recta, Óptima (A*)}
+\end{axis}
+\end{tikzpicture}
+\caption{Planta de los tres caminos entre A (derecha) y B (izquierda).}
+\label{fig:mapa}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=\columnwidth, height=4.4cm, xlabel={distancia recorrida $s$ (m)}, ylabel={pendiente (°)},
+  legend style={font=\scriptsize, at={(0.5,1.03)}, anchor=south, legend columns=4}, tick label style={font=\scriptsize}, label style={font=\small}, ymin=0]
+\addplot[blue] table[x=s_m, y=pendiente_grados, col sep=comma] {datos/ruta_real.csv};
+\addplot[red, dashed] table[x=s_m, y=pendiente_grados, col sep=comma] {datos/ruta_recta.csv};
+\addplot[black!70!green] table[x=s_m, y=pendiente_grados, col sep=comma] {datos/ruta_optima.csv};
+\addplot[gray, densely dotted, domain=0:480] {15};
+\legend{Real, Recta, Óptima, límite 15°}
+\end{axis}
+\end{tikzpicture}
+\caption{Pendiente a lo largo de cada camino. La recta supera el límite de 15°.}
+\label{fig:pend}
+\end{figure}
+
+\subsection{Resultados}
+La recta es la más corta (33\,\% menos que la ruta real) pero no es factible, porque cruza una pendiente de 18° (Tabla~\ref{tab:rutas}, Figs.~\ref{fig:mapa}--\ref{fig:pend}). El camino óptimo la rodea con solo 15\,m más y obtiene el menor costo: 31\,\% menos que la ruta real y 2\,\% menos que la recta. La ruta real es más larga porque responde a objetivos científicos y a restricciones del rover que el costo no incluye.
+
+\emph{Dosis.} La dosis de una caminata es la integral de la tasa en el tiempo, $\mathcal D = \int \dot D\,dt = \frac{1}{v}\int_\Gamma \dot D\,ds$. Para 335\,m a 1\,m/s (5.6\,min) da 0.0025\,mSv, cinco órdenes de magnitud bajo el límite de carrera de 600\,mSv~\cite{nasa_ochmo2025}. Como $\dot D$ casi no cambia en 300\,m, la dosis depende del \emph{tiempo} de exposición, no del camino.
+
+\subsection{Sensibilidad de la ruta}
+\emph{Peso de la exposición.} Se repitió A* con $\lambda$ entre 0 y 100. Con $\lambda \le 3$ se obtiene prácticamente el mismo camino (335\,m, exposición media 0.358); con $\lambda = 20$ o más, la exposición media baja solo de 0.358 a 0.351 (2\,\%) a cambio de subir la pendiente máxima de 11.3° a 12.1°. El frente de Pareto entre distancia y exposición prácticamente se reduce a un punto: \textbf{en este tramo la exposición es casi uniforme y la ruta la deciden el terreno y la distancia}. Es coherente con la física: en unos cientos de metros la atmósfera casi no cambia.
+
+\emph{Límite de pendiente.} La Fig.~\ref{fig:limite} muestra el compromiso real del tramo. Con un límite de 9° o menos no existe camino entre A y B; con 10° el camino mide 369\,m, y se acorta hasta 335\,m a partir de 13°. Aun sin límite, A* evita el tramo de 18° de la recta, porque la penalización cuadrática basta para desviarlo. (Los extremos A y B se dejan siempre abiertos; por eso la pendiente máxima registrada, en A, es 11.3°.)
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=\columnwidth, height=4.2cm, xlabel={pendiente máxima permitida (°)}, ylabel={largo del camino (m)},
+  xmin=5, xmax=26, ymin=320, ymax=380, tick label style={font=\scriptsize}, label style={font=\small}]
+\addplot[thick, mark=*, black!70!green] coordinates {(10,369) (11,352) (12,341) (13,335) (15,335) (18,335) (20,335) (25,335)};
+\fill[red!15] (axis cs:5,320) rectangle (axis cs:9.5,380);
+\node[font=\scriptsize, align=center] at (axis cs:7.25,350) {sin\\camino};
+\end{axis}
+\end{tikzpicture}
+\caption{Largo del camino óptimo según el límite de pendiente.}
+\label{fig:limite}
+\end{figure}
+
+\section{Conclusiones y trabajo futuro}
+La capa calcula cinco parámetros a partir de valores medidos y leyes físicas deducidas en el texto: equilibrio hidrostático y gas ideal (fórmula barométrica), ley de Dalton, Beer--Lambert, ley del coseno de Lambert, y una serie de Fourier truncada para el ciclo estacional. La propagación de incertidumbre, verificada con Monte Carlo, muestra que el error de la presión lo domina el dato de la estación y no la altura de escala, y que el de la dosis lo domina la medición de RAD. El análisis del terreno muestra que la diferencia central converge como $O(\Delta^2)$ en terreno suave, pero mide una pendiente media que depende de la escala. En el cálculo de rutas con A*, la recta resulta inviable, el óptimo respeta 15° con 15\,m más, no existe camino bajo 10°, y la atmósfera casi no influye en la elección dentro del tramo.
+
+Como trabajo futuro: reemplazar las aproximaciones por los datos de MEDA de los sols 1063--1116, públicos en el PDS de la NASA~\cite{nasa_pds_meda}, para validar el modelo y reducir la incertidumbre principal; hacer avanzar la hora local con el Sol de la escena; ampliar el cálculo de rutas a tramos más largos, donde la atmósfera sí varía; y diseñar un lazo de control térmico del traje usando la temperatura de la capa como perturbación.
+
+% Referencias escritas aqui mismo (generadas con IEEEtran.bst desde referencias.bib), para que el .tex compile solo,
+% por ejemplo pegado en Overleaf. Si se edita referencias.bib, cambiar estas dos lineas por
+% \bibliographystyle{IEEEtran} y \bibliography{referencias} y recompilar con BibTeX.
+% Generated by IEEEtran.bst, version: 1.14 (2015/08/26)
+\begin{thebibliography}{10}
+\providecommand{\url}[1]{#1}
+\csname url@samestyle\endcsname
+\providecommand{\newblock}{\relax}
+\providecommand{\bibinfo}[2]{#2}
+\providecommand{\BIBentrySTDinterwordspacing}{\spaceskip=0pt\relax}
+\providecommand{\BIBentryALTinterwordstretchfactor}{4}
+\providecommand{\BIBentryALTinterwordspacing}{\spaceskip=\fontdimen2\font plus
+\BIBentryALTinterwordstretchfactor\fontdimen3\font minus
+  \fontdimen4\font\relax}
+\providecommand{\BIBforeignlanguage}[2]{{%
+\expandafter\ifx\csname l@#1\endcsname\relax
+\typeout{** WARNING: IEEEtran.bst: No hyphenation pattern has been}%
+\typeout{** loaded for the language `#1'. Using the pattern for}%
+\typeout{** the default language instead.}%
+\else
+\language=\csname l@#1\endcsname
+\fi
+#2}}
+\providecommand{\BIBdecl}{\relax}
+\BIBdecl
+
+\bibitem{godot}
+\BIBentryALTinterwordspacing
+{Godot Engine contributors}, ``Godot engine 4.7,'' 2026. [Online]. Available:
+  \url{https://godotengine.org}
+\BIBentrySTDinterwordspacing
+
+\bibitem{rodriguezmanfredi2021}
+J.~A. Rodriguez-Manfredi, M.~de~la Torre~Ju{\'a}rez, A.~Alonso,
+  V.~Ap{\'e}stigue \emph{et~al.}, ``The {Mars Environmental Dynamics Analyzer,
+  MEDA}. a suite of environmental sensors for the {Mars 2020} mission,''
+  \emph{Space Science Reviews}, vol. 217, no.~3, p.~48, 2021, disponible en
+  NASA NTRS 20210014064.
+
+\bibitem{nasa_instrumentos}
+\BIBentryALTinterwordspacing
+{NASA Science}, ``{Perseverance} science instruments,'' NASA Science,
+  misi{\'o}n Mars 2020, consultado el 14 nov. 2026. [Online]. Available:
+  \url{https://science.nasa.gov/mission/mars-2020-perseverance/science-instruments/}
+\BIBentrySTDinterwordspacing
+
+\bibitem{harri2024}
+A.-M. Harri, M.~Paton, M.~Hieta, J.~Polkko \emph{et~al.}, ``Perseverance {MEDA}
+  atmospheric pressure observations---initial results,'' \emph{Journal of
+  Geophysical Research: Planets}, vol. 129, no.~3, p. e2023JE007880, 2024.
+
+\bibitem{nasa_glenn}
+\BIBentryALTinterwordspacing
+{NASA Glenn Research Center}, ``Mars atmosphere model -- metric units,'' NASA
+  Glenn Research Center, Beginner's Guide to Aeronautics, consultado el 14 nov.
+  2026. [Online]. Available:
+  \url{https://www.grc.nasa.gov/www/k-12/airplane/atmosmrm.html}
+\BIBentrySTDinterwordspacing
+
+\bibitem{nasa_factsheet}
+\BIBentryALTinterwordspacing
+D.~R. Williams, ``Mars fact sheet,'' NASA Goddard Space Flight Center, NSSDCA,
+  2025, actualizada el 19 may. 2025. [Online]. Available:
+  \url{https://nssdc.gsfc.nasa.gov/planetary/factsheet/marsfact.html}
+\BIBentrySTDinterwordspacing
+
+\bibitem{trainer2019}
+M.~G. Trainer, M.~H. Wong, T.~H. McConnochie, H.~B. Franz \emph{et~al.},
+  ``Seasonal variations in atmospheric composition as measured in {Gale}
+  crater, {Mars},'' \emph{Journal of Geophysical Research: Planets}, vol. 124,
+  no.~11, pp. 3000--3024, 2019.
+
+\bibitem{nasa_sam2019}
+\BIBentryALTinterwordspacing
+{NASA Goddard Space Flight Center}, ``With {Mars} methane mystery unsolved,
+  {Curiosity} serves scientists a new one: Oxygen,'' NASA, 2019, 12 nov. 2019.
+  [Online]. Available:
+  \url{https://www.nasa.gov/missions/with-mars-methane-mystery-unsolved-curiosity-serves-scientists-a-new-one-oxygen/}
+\BIBentrySTDinterwordspacing
+
+\bibitem{hassler2014}
+D.~M. Hassler, C.~Zeitlin, R.~F. Wimmer-Schweingruber, B.~Ehresmann
+  \emph{et~al.}, ``Mars' surface radiation environment measured with the {Mars
+  Science Laboratory}'s {Curiosity} rover,'' \emph{Science}, vol. 343, no.
+  6169, p. 1244797, 2014.
+
+\bibitem{nasa_rad2013}
+\BIBentryALTinterwordspacing
+{NASA}, ``{NASA} rover results include first age measurement on {Mars} and help
+  for human exploration,'' Comunicado de prensa, 2013, 9 dic. 2013. [Online].
+  Available:
+  \url{https://www.nasa.gov/news-release/nasa-rover-results-include-first-age-measurement-on-mars-and-help-for-human-exploration/}
+\BIBentrySTDinterwordspacing
+
+\bibitem{guo2017}
+J.~Guo, T.~C. Slaba, C.~Zeitlin, R.~F. Wimmer-Schweingruber \emph{et~al.},
+  ``Dependence of the {Martian} radiation environment on atmospheric depth:
+  Modeling and measurement,'' \emph{Journal of Geophysical Research: Planets},
+  vol. 122, no.~2, pp. 329--341, 2017.
+
+\bibitem{munguira2023}
+A.~Munguira, R.~Hueso, A.~S{\'a}nchez-Lavega, M.~de~la Torre-Juarez
+  \emph{et~al.}, ``Near surface atmospheric temperatures at {Jezero} from {Mars
+  2020 MEDA} measurements,'' \emph{Journal of Geophysical Research: Planets},
+  vol. 128, no.~3, p. e2022JE007559, 2023.
+
+\bibitem{smith2023}
+M.~D. Smith, G.~M. Mart{\'i}nez, E.~Sebasti{\'a}n, M.~T. Lemmon \emph{et~al.},
+  ``Diurnal and seasonal variations of aerosol optical depth observed by
+  {MEDA/TIRS} at {Jezero} crater, {Mars},'' \emph{Journal of Geophysical
+  Research: Planets}, vol. 128, no.~1, p. e2022JE007560, 2023.
+
+\bibitem{sanchezlavega2025}
+A.~S{\'a}nchez-Lavega, E.~Larsen, T.~del R{\'i}o-Gaztelurrutia,
+  J.~Hern{\'a}ndez-Bernal \emph{et~al.}, ``{Martian} atmospheric disturbances
+  from orbital images and surface pressure at {Jezero} crater, {Mars}, during
+  {Martian} year 36,'' \emph{Journal of Geophysical Research: Planets}, vol.
+  130, no.~1, p. e2024JE008565, 2025.
+
+\bibitem{hueso2023}
+R.~Hueso, C.~E. Newman, T.~del R{\'i}o-Gaztelurrutia, A.~Munguira
+  \emph{et~al.}, ``Convective vortices and dust devils detected and
+  characterized by {Mars 2020},'' \emph{Journal of Geophysical Research:
+  Planets}, vol. 128, no.~2, p. e2022JE007516, 2023.
+
+\bibitem{toledo2023}
+D.~Toledo, V.~Ap{\'e}stigue, I.~Arruego, M.~Lemmon \emph{et~al.}, ``Dust devil
+  frequency of occurrence and radiative effects at {Jezero} crater, {Mars}, as
+  measured by {MEDA} radiation and dust sensor ({RDS}),'' \emph{Journal of
+  Geophysical Research: Planets}, vol. 128, no.~1, p. e2022JE007494, 2023.
+
+\bibitem{jackson2021}
+\BIBentryALTinterwordspacing
+B.~Jackson, ``Vortices and dust devils as observed by the {MEDA} instruments
+  onboard {Mars 2020 Perseverance} rover,'' arXiv:2109.04601, aceptado en
+  \emph{The Planetary Science Journal}, 2021. [Online]. Available:
+  \url{https://arxiv.org/abs/2109.04601}
+\BIBentrySTDinterwordspacing
+
+\bibitem{nasa_winds2022}
+\BIBentryALTinterwordspacing
+{NASA Jet Propulsion Laboratory}, ``{NASA}'s {Perseverance} studies the wild
+  winds of {Jezero} crater,'' NASA, 2022, 1 jun. 2022. [Online]. Available:
+  \url{https://www.nasa.gov/missions/mars-2020-perseverance/perseverance-rover/nasas-perseverance-studies-the-wild-winds-of-jezero-crater/}
+\BIBentrySTDinterwordspacing
+
+\bibitem{nasa_ochmo2025}
+\BIBentryALTinterwordspacing
+{NASA Office of the Chief Health and Medical Officer}, ``Design for ionizing
+  radiation protection,'' NASA, NASA-STD-3001 Technical Brief OCHMO-TB-020 Rev
+  G, 2025, 6 jun. 2025; requisitos de NASA-STD-3001 Vol. 1 Rev C. [Online].
+  Available:
+  \url{https://www.nasa.gov/wp-content/uploads/2023/12/ochmo-tb-020-radiation-protection.pdf}
+\BIBentrySTDinterwordspacing
+
+\bibitem{hart1968}
+P.~E. Hart, N.~J. Nilsson, and B.~Raphael, ``A formal basis for the heuristic
+  determination of minimum cost paths,'' \emph{IEEE Transactions on Systems
+  Science and Cybernetics}, vol.~4, no.~2, pp. 100--107, 1968.
+
+\bibitem{nasa_pds_meda}
+\BIBentryALTinterwordspacing
+{NASA Planetary Data System, Atmospheres Node}, ``{Mars 2020 MEDA} data bundle
+  (mars2020\_meda),'' NASA PDS, 2021. [Online]. Available:
+  \url{https://pds-atmospheres.nmsu.edu/PDS/data/PDS4/Mars2020/mars2020_meda/}
+\BIBentrySTDinterwordspacing
+
+\end{thebibliography}
+
+\end{document}

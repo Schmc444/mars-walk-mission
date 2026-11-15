@@ -16,7 +16,7 @@ const POLVO := """[b]Polvo: por qué estos números[/b]
 const RADIACION := """[b]Radiación: por qué estos números[/b]
 • RAD (Curiosity) midió en promedio 0.67 mSv/día de rayos cósmicos en la superficie (Hassler et al. 2013, Science).
 • Menos aire encima = menos blindaje: la dosis sube cuando baja la presión (Guo et al. 2017). Jezero está más alto que Gale.
-• Riesgo: NASA-STD-3001 pide mantener los rayos cósmicos bajo 0.8 mSv/día en sistemas de superficie, y fija 600 mSv como límite de carrera de un astronauta.
+• Riesgo: NASA-STD-3001 (Rev C) pide mantener los rayos cósmicos bajo 0.9 mSv/día en superficies planetarias, y fija 600 mSv como límite de carrera de un astronauta.
 • Paredes y hondonadas tapan parte del cielo y bajan la dosis (RAD lo estudia en Gale).
 [color=#ffb347]SINTÉTICO:[/color] el mapa local (±10 %) y el efecto de las hondonadas."""
 
