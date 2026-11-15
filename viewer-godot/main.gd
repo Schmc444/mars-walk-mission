@@ -73,6 +73,11 @@ var world_speed := 0.0
 
 
 func _ready() -> void:
+	var peb_layers := 3
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--pebbles="):
+			peb_layers = clampi(int(a.get_slice("=", 1)), 0, 3)
+	RenderingServer.global_shader_parameter_add("pebble_layers", RenderingServer.GLOBAL_VAR_TYPE_INT, peb_layers)
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--world="):
 			_ready_world(a.substr(8))

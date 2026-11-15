@@ -1,4 +1,5 @@
 shader_type spatial;
+global uniform int pebble_layers;
 uniform sampler2D ortho : filter_linear_mipmap_anisotropic;
 uniform bool hazard = false;
 uniform float hazard_deg = 15.0;
@@ -57,7 +58,10 @@ float peb(vec2 p, float cell, float ang, float dens, out vec2 grad, out float to
 }
 void fragment() {
   float g = texture(ortho, UV).r;
-  float d = vn(wpos*6.0)*0.5 + vn(wpos*23.0)*0.3 + vn(wpos*91.0)*0.2;
+  float v6 = vn(wpos*6.0);
+  float v23 = vn(wpos*23.0);
+  float near = 1.0 - smoothstep(25.0, 70.0, length(VERTEX));
+  float d = v6*0.5 + v23*0.3 + (near > 0.0 ? vn(wpos*91.0) : 0.0)*0.2;
   float c = clamp((g - 0.227) / 0.313, 0.0, 1.0);
   vec3 dark = vec3(0.07, 0.042, 0.027);
   vec3 bright = vec3(0.3, 0.16, 0.08);
@@ -66,8 +70,7 @@ void fragment() {
     dark = far_albedo * ring_gain * 0.6;
     bright = far_albedo * ring_gain * 1.3;
   }
-  float near = 1.0 - smoothstep(25.0, 70.0, length(VERTEX));
-  d = mix(vn(wpos*6.0)*0.5 + vn(wpos*23.0)*0.3 + 0.1, d, near);
+  d = mix(v6*0.5 + v23*0.3 + 0.1, d, near);
   vec3 base = mix(dark, bright, c) * (0.85 + 0.3 * d);
   // metre-scale tint: greyer basaltic sand vs redder dust, plus a faint wind streak direction
   float hv = vn(wpos * vec2(0.22, 0.5) + 3.1) * 0.6 + vn(wpos * 1.4 + 9.0) * 0.4;
@@ -89,12 +92,18 @@ void fragment() {
   vec3 W = vec3(1.0) - smoothstep(L * 0.3, L * 0.9, vec3(fw));
   vec2 gs = vec2(0.0); float hsum = 0.0; float aot = 1.0; float pc = 0.0; float pw = 0.0;
   vec2 gg; float tn; float oc; float h;
+  if (W.x > 0.0 && pebble_layers >= 3) {
   h = peb(wp, L.x, 0.41, mix(0.15, 0.95, D), gg, tn, oc) * W.x;
   gs += gg * W.x; aot *= mix(1.0, oc, W.x); pc += h * mix(0.5, 1.3, tn); pw += h;
+  }
+  if (W.y > 0.0 && pebble_layers >= 2) {
   h = peb(wp + 11.3, L.y, 1.93, mix(0.06, 0.7, D), gg, tn, oc) * W.y;
   gs += gg * W.y; aot *= mix(1.0, oc, W.y); pc += h * mix(0.45, 1.35, tn); pw += h;
+  }
+  if (W.z > 0.0 && pebble_layers >= 1) {
   h = peb(wp - 5.7, L.z, 4.12, mix(0.01, 0.4, D * D), gg, tn, oc) * W.z;
   gs += gg * W.z; aot *= mix(1.0, oc, W.z); pc += h * mix(0.45, 1.3, tn); pw += h;
+  }
   NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(-gs.x, 0.0, -gs.y, 0.0)).xyz);
   // pebble albedo: dark grey basalt to dust-coated tan; sharp-ish so the clast reads as a stone
   float on = smoothstep(0.0, 0.15, pw);
