@@ -76,7 +76,9 @@ func setup(w: WorldStreamer, c: Node) -> void:
 		add_child(t)
 	if core.right != null:
 		core.right.button_pressed.connect(func(n: String): if n == "trigger_click" and not (core.get("route_ui") != null and core.route_ui.menu_open): _rec_toggle())
-		core.right.button_pressed.connect(func(n: String): if n == "grip_click": _toggle_visible())
+	if core.left != null:
+		core.left.button_pressed.connect(func(n: String): if n == "by_button": _toggle_visible())
+
 
 
 func _toggle_visible() -> void:
