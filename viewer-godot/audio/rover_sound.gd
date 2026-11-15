@@ -10,7 +10,7 @@ extends Node
 ## Autoload, así que se busca cada cuadro hasta encontrarlo y se vuelve a buscar si desaparece:
 ##   modo mundo  -> core/capa_ruta.rover (se mueve con ride_s; el visor lo crea una sola vez)
 ##   modo parche -> core/Perseverance    (fijo en el waypoint)
-## Bus propio "Rover" (VOLUME_DB). Montado en el rover (core.riding) suena RIDING_DB más bajo, con fade.
+## Bus propio "Rover" (VOLUME_DB). Solo suena montado en el rover (core.riding): fade-in al subir, fade-out al bajar, en silencio a pie.
 ## Respeta --norover (sin rover, sin sonido) y --no-ambient (apaga también este sonido).
 
 const STREAM_PATH := "res://audio/rover_selfnoise_norm.wav"   # copia normalizada (RMS -16 dBFS, pico -1 dBFS); original: rover_selfnoise.wav
@@ -19,13 +19,14 @@ const RADIO_M := 5.0          # m: más allá no se oye (max_distance)
 const FADE_START_M := 2.5     # m: desde aquí el volumen baja hasta cero justo en RADIO_M (sin corte seco)
 const VOLUME_DB := 0.0        # volumen del bus Rover; el nivel ya viene normalizado en el archivo
 const RIDING_DB := 0.0        # dB extra mientras el jugador va montado (0 = igual que a pie; poner p. ej. -6 para bajarlo)
-const RIDING_FADE_S := 0.4    # s: constante de tiempo del cambio montado <-> a pie
+const FADE_IN_S := 0.6        # s: fade-in al montarse
+const FADE_OUT_S := 1.5       # s: fade-out al bajarse (solo suena montado)
 const MIC_HEIGHT := 0.8       # m sobre el origen del rover (micrófono del costado)
 const SILENT_DB := -80.0
 
 var player: AudioStreamPlayer3D
 var rover: Node3D
-var _riding_db := 0.0         # offset actual (suavizado)
+var _gain := 0.0              # 0..1 lineal: sube al montarse, baja al bajarse
 var _disabled := false
 
 
@@ -111,7 +112,11 @@ func _process(delta: float) -> void:
 	if cam == null or not rover.is_visible_in_tree():
 		player.stream_paused = true       # rover oculto: sin sonido
 		return
+	var riding: bool = core.get("riding") == true
+	_gain = move_toward(_gain, 1.0 if riding else 0.0, delta / (FADE_IN_S if riding else FADE_OUT_S))
+	if _gain <= 0.0:
+		player.stream_paused = true
+		return
 	player.stream_paused = false
-	var want := RIDING_DB if core.get("riding") == true else 0.0
-	_riding_db = lerpf(_riding_db, want, 1.0 - exp(-delta / RIDING_FADE_S))
-	player.volume_db = maxf(edge_db(cam.global_position.distance_to(player.global_position)) + _riding_db, SILENT_DB)
+	var g_db := maxf(linear_to_db(_gain), SILENT_DB)
+	player.volume_db = maxf(edge_db(cam.global_position.distance_to(player.global_position)) + RIDING_DB + g_db, SILENT_DB)
