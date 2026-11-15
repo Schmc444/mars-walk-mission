@@ -19,7 +19,11 @@ var cam: XRCamera3D
 var left: XRController3D
 var right: XRController3D
 var in_xr := false
-var snap_ready := true
+var giro_v := 0.0
+const WALK_SPEED := 1.9
+const GIRO_MAX_GRADOS_S := 55.0
+const GIRO_ZONA_MUERTA := 0.2
+const GIRO_SUAVIZADO := 7.0
 var yaw := 0.0
 var pitch := 0.0
 var terrain_mat: ShaderMaterial
@@ -217,13 +221,13 @@ func _process_world(delta: float) -> void:
 		if riding:
 			world_speed = mv.y * 12.0
 		else:
-			p += (fwd * mv.y + rgt * mv.x) * delta * (15.0 if left.get_float("trigger") > 0.5 else 2.2)
+			p += (fwd * mv.y + rgt * mv.x) * delta * (15.0 if left.get_float("trigger") > 0.5 else WALK_SPEED)
 		var tx := right.get_vector2("primary").x
-		if absf(tx) > 0.7 and snap_ready:
-			origin.rotate_y(-signf(tx) * PI / 6.0)
-			snap_ready = false
-		elif absf(tx) < 0.3:
-			snap_ready = true
+		var objetivo := 0.0
+		if absf(tx) > GIRO_ZONA_MUERTA:
+			objetivo = -signf(tx) * (absf(tx) - GIRO_ZONA_MUERTA) / (1.0 - GIRO_ZONA_MUERTA) * deg_to_rad(GIRO_MAX_GRADOS_S)
+		giro_v = lerpf(giro_v, objetivo, 1.0 - exp(-GIRO_SUAVIZADO * delta))
+		origin.rotate_y(giro_v * delta)
 	else:
 		cam.rotation = Vector3(pitch, yaw, 0)
 		var d := Vector3.ZERO
@@ -788,13 +792,13 @@ func _process(delta: float) -> void:
 		fwd = fwd.normalized()
 		var rgt := fwd.cross(Vector3.UP)
 		var mv := left.get_vector2("primary")
-		origin.global_position += (fwd * mv.y + rgt * mv.x) * delta * (15.0 if left.get_float("trigger") > 0.5 else 2.2)
+		origin.global_position += (fwd * mv.y + rgt * mv.x) * delta * (15.0 if left.get_float("trigger") > 0.5 else WALK_SPEED)
 		var tx := right.get_vector2("primary").x
-		if absf(tx) > 0.7 and snap_ready:
-			origin.rotate_y(-signf(tx) * PI / 6.0)
-			snap_ready = false
-		elif absf(tx) < 0.3:
-			snap_ready = true
+		var objetivo := 0.0
+		if absf(tx) > GIRO_ZONA_MUERTA:
+			objetivo = -signf(tx) * (absf(tx) - GIRO_ZONA_MUERTA) / (1.0 - GIRO_ZONA_MUERTA) * deg_to_rad(GIRO_MAX_GRADOS_S)
+		giro_v = lerpf(giro_v, objetivo, 1.0 - exp(-GIRO_SUAVIZADO * delta))
+		origin.rotate_y(giro_v * delta)
 	else:
 		cam.rotation = Vector3(pitch, yaw, 0)
 		var d := Vector3.ZERO
