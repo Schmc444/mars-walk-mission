@@ -38,6 +38,8 @@ func setup(w: WorldStreamer, c: Node) -> void:
 	if rover:
 		rover_s = core.ride_s
 		_place()
+		if "--norover" in OS.get_cmdline_user_args():
+			rover.visible = false
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--play="):
 			var j = JSON.parse_string(FileAccess.get_file_as_string(a.get_slice("=", 1)))
