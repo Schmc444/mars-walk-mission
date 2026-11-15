@@ -38,6 +38,8 @@ var _state := {}
 var goal_name := ""                     # nombre del destino para la baliza (opcional)
 var hud_terrain := true                 # false si otro nodo (RouteUI) ya muestra el terreno bajo el jugador
 var _chevrons: MultiMeshInstance3D
+var _chev_pt := PackedInt32Array()      # índice de punto de ruta de cada chevron (para re-pegarlos al terreno)
+var _heights_ms := 0                    # último refresco de alturas
 var _goal_mesh: MeshInstance3D
 
 
@@ -56,6 +58,7 @@ func clear_route() -> void:
 		if n != null and is_instance_valid(n):
 			n.queue_free()
 	_chevrons = null
+	_chev_pt = PackedInt32Array()
 	_goal_mesh = null
 	_goal_label = null
 	_arrow = null
@@ -149,6 +152,7 @@ func _build_chevrons() -> void:
 	var total := cum[cum.size() - 1]
 	var count := int(total / spacing)
 	mm.instance_count = count
+	_chev_pt.resize(count)
 	for k in count:
 		var i := _point_at(k * spacing)
 		var j := mini(i + 1, pts.size() - 1)
@@ -157,6 +161,7 @@ func _build_chevrons() -> void:
 		if dir.length() < 0.01:
 			dir = Vector3.FORWARD
 		var b := Basis.looking_at(dir.normalized(), Vector3.UP)  # -Z points along the route: the V tip points forward
+		_chev_pt[k] = i
 		mm.set_instance_transform(k, Transform3D(b, pts[i] + Vector3.UP * lift))
 		mm.set_instance_color(k, _risk_color(i))
 	var mi := MultiMeshInstance3D.new()
@@ -207,9 +212,55 @@ func _build_arrow() -> void:
 	add_child(_arrow)
 
 
-## Call every frame. player_pos: feet position (XROrigin3D / camera projected to the ground).
+func _project(p: Vector3, i: int) -> Dictionary:
+	## Proyección (en XZ) del jugador sobre los tramos vecinos al vértice más cercano `i`: distancia a la ruta, y distancia/ETA
+	## acumulados EXACTOS en ese punto (antes se usaba el vértice, con saltos de hasta ~0.9 m por frame y error de hasta 0.5 m).
+	var best := {"d": INF, "a": i, "t": 0.0}
+	var P := Vector2(p.x, p.z)
+	for a in [i - 1, i]:
+		if a < 0 or a + 1 >= pts.size():
+			continue
+		var A := Vector2(pts[a].x, pts[a].z)
+		var ab := Vector2(pts[a + 1].x, pts[a + 1].z) - A
+		var l2 := ab.length_squared()
+		var t := 0.0 if l2 < 1e-12 else clampf((P - A).dot(ab) / l2, 0.0, 1.0)
+		var d := P.distance_to(A + ab * t)
+		if d < best["d"]:
+			best = {"d": d, "a": a, "t": t}
+	if best["d"] == INF:
+		best["d"] = P.distance_to(Vector2(pts[i].x, pts[i].z))
+	var a: int = best["a"]
+	var b := mini(a + 1, pts.size() - 1)
+	best["s"] = cum[a] + best["t"] * (cum[b] - cum[a])
+	best["eta"] = eta[a] + best["t"] * (eta[b] - eta[a])
+	best["pos"] = pts[a].lerp(pts[b], best["t"])
+	return best
+
+
+func refresh_heights(center: Vector3, radius := 60.0) -> int:
+	## Re-pega al terreno los chevrons cercanos con `height_fn`. En world la altura del visor cambia (t5 lejos, t1 cerca, según lo que
+	## haya cargado el streaming) y la ruta se fijó con la altura de ese momento: sin esto flota o se hunde hasta ~0.5 m.
+	if not height_fn.is_valid() or _chevrons == null:
+		return 0
+	var mm := _chevrons.multimesh
+	var n := 0
+	for k in mm.instance_count:
+		var i := _chev_pt[k]
+		if absf(pts[i].x - center.x) > radius or absf(pts[i].z - center.z) > radius:
+			continue
+		var y: float = height_fn.call(pts[i].x, pts[i].z)
+		pts[i].y = y
+		var xf := mm.get_instance_transform(k)
+		xf.origin.y = y + lift
+		mm.set_instance_transform(k, xf)
+		n += 1
+	return n
+
+
+## Call every frame. player_pos: feet position (en VR: la CÁMARA proyectada al suelo, no el XROrigin3D: con room-scale difieren).
 ## head_basis: camera global basis, used to place the arrow in front of the eyes.
-func update_player(player_pos: Vector3, head_basis: Basis) -> Dictionary:
+## head_pos: posición global de la cámara (opcional); si falta se supone 1.6 m sobre player_pos.
+func update_player(player_pos: Vector3, head_basis: Basis, head_pos := Vector3.INF) -> Dictionary:
 	if pts.is_empty() or _arrow == null:
 		return {}
 	# nearest route point, searching a window around the last one (cheap and avoids jumping to a far branch)
@@ -228,34 +279,39 @@ func update_player(player_pos: Vector3, head_basis: Basis) -> Dictionary:
 				best = dd
 				_last_i = k
 	var i := _last_i
-	var off := sqrt(best)
-	var target_i := _point_at(cum[i] + lookahead)
+	var pr := _project(player_pos, i)
+	var off: float = pr["d"]
+	var s_here: float = pr["s"]
+	var target_i := _point_at(s_here + lookahead)
 	var target := pts[target_i]
 	if off > off_route_warn:
-		target = pts[i]                   # off the route: point back to the nearest route point first
+		target = pr["pos"]                # off the route: point back to the nearest route point first
 	# floating arrow 1 m ahead of the eyes, 0.5 m below them, pointing to the target
 	var fwd := -head_basis.z
 	fwd.y = 0
 	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3.FORWARD
-	var head := player_pos + Vector3.UP * 1.6
+	var head := head_pos if head_pos.is_finite() else player_pos + Vector3.UP * 1.6
 	_arrow.global_position = head + fwd * 1.0 + Vector3.DOWN * 0.5
 	var to := target - _arrow.global_position
 	to.y = 0
 	if to.length() > 0.01:
 		_arrow.global_basis = Basis.looking_at(to.normalized(), Vector3.UP) * Basis(Vector3.RIGHT, -PI / 2)  # cone tip along -Z
 	(_arrow.material_override as StandardMaterial3D).albedo_color = COL_RISK if off > off_route_warn else _risk_color(target_i)
-	var remaining := cum[cum.size() - 1] - cum[i]
-	var eta_left := eta[eta.size() - 1] - eta[i]
+	var remaining := cum[cum.size() - 1] - s_here
+	var eta_left: float = eta[eta.size() - 1] - float(pr["eta"])
 	var warn := ""
 	for w in data["warnings"]:
 		var wi := int(w["i"])
-		if wi >= i and cum[wi] - cum[i] < 10.0:
-			warn = "%s (en %.0f m)" % [w["msg"], cum[wi] - cum[i]]
+		if wi >= i and cum[wi] - s_here < 10.0:
+			warn = "%s (en %.0f m)" % [w["msg"], maxf(cum[wi] - s_here, 0.0)]
 			break
 	_goal_label.text = "%s  %.0f m · %s" % [goal_name if goal_name != "" else "META", remaining, _fmt_time(eta_left)]
 	_state = {"index": i, "off_route_m": off, "remaining_m": remaining, "eta_s": eta_left,
 		"slope_here": slope[i], "terrain_here": str(data["terrain_names"].get(str(terrain[i]), "?")), "terrain_code": terrain[i], "warning": warn,
 		"arrived": remaining < 1.5}
+	if height_fn.is_valid() and Time.get_ticks_msec() - _heights_ms > 500:
+		_heights_ms = Time.get_ticks_msec()
+		refresh_heights(player_pos)
 	return _state
 
 

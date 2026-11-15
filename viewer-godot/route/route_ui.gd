@@ -297,8 +297,15 @@ func clear_start() -> void:
 	_start_override = null
 
 
+func feet() -> Vector3:
+	## Dónde está el jugador de verdad: la cámara proyectada al suelo. En VR (room-scale) la cámara puede estar a 1-2 m del XROrigin3D;
+	## en pantalla plana coinciden (la cámara cuelga del origen).
+	var c: Vector3 = core.cam.global_position
+	return Vector3(c.x, core.origin.position.y, c.z)
+
+
 func player_latlon() -> Array:
-	var p: Vector3 = core.origin.position
+	var p := feet()
 	return local_to_latlon(p.x, p.z)
 
 
@@ -344,7 +351,7 @@ func request_route(lat: float, lon: float, nombre: String) -> void:
 	if _start_override != null:
 		start = {"lat": _start_override.x, "lon": _start_override.y}
 	else:
-		var p: Vector3 = core.origin.position
+		var p := feet()
 		start = {"x": p.x, "z": p.z}
 	var req := {"scene": scene_dir, "condition": condition, "risk_weight": risk_weight,
 		"start": start, "goal": {"lat": lat, "lon": lon}}
@@ -469,7 +476,9 @@ func tick(player_pos: Vector3, head_basis: Basis, delta: float) -> void:
 		_ensure_terrain_window(player_pos)
 	if _busy_pid > 0 and not OS.is_process_running(_busy_pid):
 		_finish_request()
-	guide.update_player(player_pos, head_basis)
+	var f := feet()
+	player_pos = Vector3(f.x, player_pos.y, f.z)
+	guide.update_player(player_pos, head_basis, core.cam.global_position)
 	_emit_t += delta
 	if has_geo and _emit_t >= EMIT_EVERY:
 		_emit_t = 0.0
@@ -479,7 +488,8 @@ func tick(player_pos: Vector3, head_basis: Basis, delta: float) -> void:
 			player_position_changed.emit(ll[0], ll[1])
 
 
-func hud_lines(player_pos: Vector3) -> String:
+func hud_lines(_player_pos: Vector3) -> String:
+	var player_pos := feet()
 	var s := "\nTerreno: %s" % terrain_name_at(player_pos.x, player_pos.z)
 	if has_geo:
 		var ll := local_to_latlon(player_pos.x, player_pos.z)

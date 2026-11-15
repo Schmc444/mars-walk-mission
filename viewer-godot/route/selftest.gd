@@ -134,6 +134,8 @@ func _run(main: Node) -> void:
 	# 9. posición del jugador por la misma vía
 	var got: Array = []
 	ui.player_position_changed.connect(func(a, b): got.append([a, b]))
+	main.cam.position = Vector3(0, 1.6, 0)
+	main.origin.position = Vector3(3, 0, 4)       # tick() usa la cámara (feet()), que cuelga del origen
 	ui.tick(Vector3(3, 0, 4), Basis.IDENTITY, 1.0)
 	check(got.size() == 1 and absf(got[0][0] - ui.local_to_latlon(3, 4)[0]) < 1e-9, "player_position_changed emitida con lat/lon del jugador")
 	ui.set_start(18.48, 77.36)
@@ -145,6 +147,7 @@ func _run(main: Node) -> void:
 	key.keycode = KEY_W
 	key.physical_keycode = KEY_W
 	key.pressed = true
+	await process_frame                             # deja que el visor reasiente la altura tras el cambio de posición
 	var p0: Vector3 = main.origin.position
 	ui.typing = true
 	Input.parse_input_event(key)
@@ -158,6 +161,15 @@ func _run(main: Node) -> void:
 	check(main.origin.position.distance_to(p0) > 0.05, "con typing=false W sí mueve al jugador (%.2f m)" % main.origin.position.distance_to(p0))
 	key.pressed = false
 	Input.parse_input_event(key)
+
+	# 11. VR: la posición del jugador es la de la CÁMARA (room-scale), no la del XROrigin3D
+	main.cam.position = Vector3(2.0, 1.6, -1.0)
+	var fe: Vector3 = ui.feet()
+	check(absf(fe.x - (main.origin.position.x + 2.0)) < 1e-4 and absf(fe.z - (main.origin.position.z - 1.0)) < 1e-4, "feet() usa la cámara: (%.2f, %.2f) vs origen (%.2f, %.2f)" % [fe.x, fe.z, main.origin.position.x, main.origin.position.z])
+	var pl: Array = ui.player_latlon()
+	var back: Vector2 = ui.latlon_to_local(pl[0], pl[1])
+	check(absf(back.x - fe.x) < 1e-3 and absf(back.y - fe.z) < 1e-3, "player_latlon corresponde a la cámara")
+	main.cam.position = Vector3(0, 1.6, 0)
 
 	print("RESULTADO: %s (%d fallos)" % ["TODO OK" if fails == 0 else "HAY FALLOS", fails])
 	quit(0 if fails == 0 else 1)
