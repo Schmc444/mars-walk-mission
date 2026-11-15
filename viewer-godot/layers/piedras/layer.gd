@@ -81,20 +81,13 @@ func _rebuild() -> void:
 		var d: Dictionary = cache[k]
 		var near: bool = absi(k.x - center.x) <= PEBBLE_CELLS and absi(k.y - center.y) <= PEBBLE_CELLS
 		for part in (["rocks", "pebbles"] if near else ["rocks"]):
-			for e in d[part]:
-				var v: int = e[0]
-				var t: Transform3D = e[1]
-				var col: Color = e[2]
-				var b := t.basis
-				bufs[v].append_array(PackedFloat32Array([
-					b.x.x, b.y.x, b.z.x, t.origin.x,
-					b.x.y, b.y.y, b.z.y, t.origin.y,
-					b.x.z, b.y.z, b.z.z, t.origin.z,
-					col.r, col.g, col.b, col.a]))
-				tris += 320 if v < variants else 80
+			var pb: Array = d[part]          # ya empaquetado por variante en _gen_cell (antes: un arreglo nuevo por roca en cada rebuild)
+			for v in variants * 2:
+				bufs[v].append_array(pb[v])
 	for v in variants * 2:
 		var mm := mms[v]
 		var n: int = bufs[v].size() / 16
+		tris += n * (320 if v < variants else 80)
 		mm.instance_count = n
 		if n > 0:
 			mm.buffer = bufs[v]
@@ -139,7 +132,25 @@ func _gen_cell(k: Vector2i) -> Dictionary:
 		if rng.randf() > 0.25 + 0.75 * exp(-near / 6.0):
 			continue
 		pebbles.append(_rock(rng, x, z, minf(0.012 / pow(rng.randf_range(0.03, 1.0), 0.55), 0.14)))
-	return {"rocks": rocks, "pebbles": pebbles}
+	return {"rocks": _pack(rocks), "pebbles": _pack(pebbles)}
+
+
+# [v, Transform3D, Color] por roca -> un PackedFloat32Array por variante con el formato de MultiMesh.buffer (12 + 4 floats).
+func _pack(lista: Array) -> Array:
+	var out: Array = []
+	for v in variants * 2:
+		out.append(PackedFloat32Array())
+	for e in lista:
+		var v: int = e[0]
+		var t: Transform3D = e[1]
+		var col: Color = e[2]
+		var b := t.basis
+		out[v].append_array(PackedFloat32Array([
+			b.x.x, b.y.x, b.z.x, t.origin.x,
+			b.x.y, b.y.y, b.z.y, t.origin.y,
+			b.x.z, b.y.z, b.z.z, t.origin.z,
+			col.r, col.g, col.b, col.a]))
+	return out
 
 
 func _rock(rng: RandomNumberGenerator, x: float, z: float, r: float) -> Array:
