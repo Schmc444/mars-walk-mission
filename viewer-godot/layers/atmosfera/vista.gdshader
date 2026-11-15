@@ -34,6 +34,10 @@ uniform vec4 remolinos[16];                                // x, z, radio, alto
 uniform float calor_sol = 35.0;                            // K que gana una superficie de frente al sol alto
 uniform float calor_brillo = 18.0;                        // K de mas/menos segun el brillo de la escena
 uniform float detalle = 0.12;                             // vistas 1-4: relieve visible (del brillo de la escena)
+// Vistas 1-4: sombreado con la luz real de la escena (sol en laderas, sombras, rocas). Multiplica el color de la
+// paleta sin cambiar su tono, para que se vean el relieve, las piedras y los huecos. 0 = sin sombreado.
+uniform float sombreado = 0.6;
+uniform float brillo_ref = 0.45;                           // brillo de un suelo plano iluminado (sombreado = 1)
 
 // Valor del mapa en uv para las vistas 1-4, "orientado": mas alto = mas de ese parametro.
 float valor_vista(vec2 uv) {
@@ -116,7 +120,7 @@ void fragment() {
 			t = cielo_t;
 		} else {
 			float x = mix(mediana, valor_vista(uv), k);
-			t = (x - escala.x) / (escala.y - escala.x) + detalle * (brillo - 0.45) * 2.0;
+			t = (x - escala.x) / (escala.y - escala.x) + detalle * (brillo - 0.45) * 2.0 * (1.0 - sombreado);
 		}
 		// polvo: remolinos como columnas (el rayo pasa cerca del eje, por debajo de su altura y antes del suelo)
 		if (vista == 4) {
@@ -138,6 +142,12 @@ void fragment() {
 			}
 		}
 	}
-	ALBEDO = sin_tonemap(paleta(t));
+	vec3 color = paleta(t);
+	if (vista != 0 && !cielo) {
+		// sombreado: la luz de la escena relativa a un suelo plano iluminado (mismo tono, distinta luz)
+		float luz = clamp(mix(1.0, brillo / brillo_ref, sombreado), 0.55, 1.25);
+		color = clamp(color * luz, 0.0, 1.0);
+	}
+	ALBEDO = sin_tonemap(color);
 	ALPHA = 1.0;
 }

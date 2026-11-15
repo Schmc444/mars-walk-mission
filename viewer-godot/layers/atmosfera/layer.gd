@@ -146,6 +146,14 @@ var ui: PanelContainer
 var valores_lbl := {}           # canal -> Label "Oxigeno: 0.16 %"
 var sonido_lbl: Label
 var estado_lbl: Label           # "Hora: 14:32 · Batería: 78 %"
+# Idioma del panel: espaniol por defecto; --atm-idioma=en lo pone en ingles (p. ej. para el video del concurso)
+var idioma := "es"
+const ETIQUETAS := {
+	"es": {"o2": "Oxígeno", "rad": "Radiación", "msv": "mSv/día", "temp": "Temperatura", "pres": "Presión",
+		"polvo": "Polvo", "sonido": "Sonido", "hora": "Hora", "bateria": "Batería"},
+	"en": {"o2": "Oxygen", "rad": "Radiation", "msv": "mSv/day", "temp": "Temperature", "pres": "Pressure",
+		"polvo": "Dust", "sonido": "Sound", "hora": "Time", "bateria": "Battery"},
+}
 var bateria_ok := false         # se muestra la bateria solo si es la del visor (app corriendo en el visor) o si se pide para probar
 var bateria := -1               # % (-1 = todavia no se sabe / no disponible)
 var _t_bat := 0.0
@@ -195,6 +203,10 @@ func setup(w: WorldStreamer, c: Node) -> void:
 		elif a.begins_with("--atm-hora="):
 			hora = fposmod(float(a.get_slice("=", 1)), 24.0)
 			hora_forzada = true
+		elif a.begins_with("--atm-idioma="):
+			var i := a.get_slice("=", 1)
+			if ETIQUETAS.has(i):
+				idioma = i
 	for a in args:
 		match a:
 			"--atm=polvo": activar(POLVO)
@@ -209,6 +221,18 @@ func setup(w: WorldStreamer, c: Node) -> void:
 			"--atm-vista=polvo": alternar_vista(VISTA_POLVO)
 			"--atm-sonido": alternar_sonido()
 			"--atm-analisis": analisis = true
+	for a in args:
+		if a.begins_with("--atm-video="):       # grabacion de clips para el video (video/clip_video.gd)
+			var grabador: Node = load("res://layers/atmosfera/video/clip_video.gd").new()
+			grabador.capa = self
+			grabador.core = core
+			grabador.clip = a.get_slice("=", 1)
+			grabador.carpeta = OS.get_user_data_dir() + "/video_" + grabador.clip
+			grabador.muestras = "--atm-video-muestras" in args
+			for b in args:
+				if b.begins_with("--atm-video-dir="):
+					grabador.carpeta = b.get_slice("=", 1)
+			add_child(grabador)
 	_preparar_tramo()
 
 
@@ -430,11 +454,30 @@ func _seguir_panel(delta: float) -> void:
 	panel_3d.global_transform = Transform3D(Basis(giro_suave), cab.origin) * panel_local
 
 
+# Sol en la posicion del jugador. En el rover, el de la ruta. A pie, el del punto de la ruta mas cercano; como la ruta
+# pasa varias veces por el mismo lugar en sols distintos, el sol nuevo solo se acepta si se mantiene CAMBIO_SOL_S
+# seguidos (si no, los valores saltan ida y vuelta al caminar).
+const CAMBIO_SOL_S := 1.5
+var _sol_candidato := -1.0
+var _t_candidato := 0.0
+
 func _sol(p: Vector3) -> float:
 	if sol_forzado >= 0.0:
 		return sol_forzado
-	var s: float = core.ride_s if core.riding else world.route_nearest_s(Vector2(p.x, p.z))
-	return float(world.route_sol_at(s))
+	if core.riding:
+		return float(world.route_sol_at(core.ride_s))
+	var nuevo := float(world.route_sol_at(world.route_nearest_s(Vector2(p.x, p.z))))
+	if sol_actual <= 0.0 or nuevo == sol_actual:
+		_sol_candidato = -1.0
+		return nuevo
+	var ahora := Time.get_ticks_msec() / 1000.0
+	if nuevo != _sol_candidato:
+		_sol_candidato = nuevo
+		_t_candidato = ahora
+	if ahora - _t_candidato >= CAMBIO_SOL_S:
+		_sol_candidato = -1.0
+		return nuevo
+	return sol_actual
 
 
 func _valores(p: Vector3) -> void:
@@ -817,22 +860,24 @@ const COLOR_ACTIVO := Color(1.0, 0.83, 0.47)
 func _actualizar_panel() -> void:
 	if not ver_panel or v.is_empty():
 		return
+	var e: Dictionary = ETIQUETAS[idioma]
 	var textos := {
-		O2: "Oxígeno: %.2f %%" % [float(v["fo2"]) * 100.0],
-		RAD: "Radiación: %.2f mSv/día" % float(v["rad"]),
-		TEMP: "Temperatura: %.0f °C" % [float(v["temp"]) - 273.15],
-		PRES: "Presión: %.0f Pa" % float(v["presion"]),
-		POLVO: "Polvo: τ %.2f" % float(v["tau"]),
+		# oxigeno: fraccion local (pO2 / p), con la misma variacion de lugar que la presion parcial
+		O2: "%s: %.3f %%" % [e["o2"], float(v["po2"]) / float(v["presion"]) * 100.0],
+		RAD: "%s: %.3f %s" % [e["rad"], float(v["rad"]), e["msv"]],
+		TEMP: "%s: %.1f °C" % [e["temp"], float(v["temp"]) - 273.15],
+		PRES: "%s: %.1f Pa" % [e["pres"], float(v["presion"])],
+		POLVO: "%s: τ %.2f" % [e["polvo"], float(v["tau"])],
 	}
 	var activo: int = VISTA_CANAL[vista] if vista >= 0 else -1
 	for c in FILAS_PANEL:
 		valores_lbl[c].text = ("▶ " if c == activo else "") + textos[c]
 	if sonido_on:
-		sonido_lbl.text = "Sonido: %.0f Hz" % f_obj
+		sonido_lbl.text = "%s: %.0f Hz" % [e["sonido"], f_obj]
 	var t := Time.get_time_dict_from_system()
-	var estado := "Hora: %02d:%02d" % [t["hour"], t["minute"]]
+	var estado := "%s: %02d:%02d" % [e["hora"], t["hour"], t["minute"]]
 	if bateria_ok and bateria >= 0:
-		estado += " · Batería: %d %%" % bateria
+		estado += " · %s: %d %%" % [e["bateria"], bateria]
 	estado_lbl.text = estado
 	# ancho estable: solo crece (con el texto alineado a la derecha, encogerse lo haria saltar de lado)
 	ancho_fijo = maxf(ancho_fijo, ui.get_combined_minimum_size().x)
