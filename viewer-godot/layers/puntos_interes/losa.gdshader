@@ -12,6 +12,11 @@ uniform vec4 det_a = vec4(0.04, 0.35, 0.0, 0.0);   // escala (m por repeticion),
 uniform vec4 det_b = vec4(0.12, 1.17, 0.37, 0.61);
 uniform vec2 tri_base = vec2(0.0, 1.5);            // x: mezcla triplanar de la textura base en los costados (0..1); y: tamano del mosaico (m)
 uniform vec3 n_losa = vec3(0.0, 1.0, 0.0);         // normal de la losa (para distinguir la cara superior de los costados)
+// --- hueco al ras: se recorta la roca dentro del cilindro del eje del taladro (radio del hueco + margen), igual que el terreno ---
+uniform vec3 eje = vec3(0.0, -1.0, 0.0);           // eje del taladro (hacia dentro)
+uniform float r_corte = 0.0;                       // 0 = sin recorte
+uniform float corte_r = 0.0;                       // corte Z (semidisco), 0 = apagado
+uniform vec2 corte_n = vec2(0.0);
 
 varying vec3 lp;     // posicion local (relativa a la boca del futuro hueco: numeros pequenos y exactos)
 varying vec3 ln;     // normal local
@@ -36,6 +41,9 @@ vec3 tri_det(vec3 p, vec3 w, vec4 L) {
 }
 
 void fragment() {
+	float s = dot(lp, eje);
+	if (r_corte > 0.0 && abs(s) < 0.05 && length(lp - s * eje) < r_corte) discard;
+	if (corte_r > 0.0 && length(lp.xz) < corte_r && dot(lp.xz, corte_n) > 0.0) discard;
 	vec3 N = normalize(ln);
 	vec3 w = pow(abs(N), vec3(4.0));
 	w /= (w.x + w.y + w.z);

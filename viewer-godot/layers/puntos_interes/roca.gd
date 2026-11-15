@@ -36,6 +36,7 @@ var t_espera := 0.0
 var t_listo := 0.0
 var ok_prev := Vector3.ZERO
 var tiene_prev := false
+var mat: ShaderMaterial
 
 
 func setup(w: WorldStreamer, c: Node, params: Dictionary, pos_xz: Vector2, perforacion: Dictionary) -> void:
@@ -216,7 +217,10 @@ func _construir(d_in: Vector3) -> void:
 	var am := ArrayMesh.new()
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	var m := ShaderMaterial.new()
+	mat = m
 	m.shader = load("res://layers/puntos_interes/losa.gdshader") as Shader
+	m.set_shader_parameter("eje", d_in)                                   # recorte de la boca del hueco (radio del hueco + margen de recorte)
+	m.set_shader_parameter("r_corte", float(perf["diametro_mm"]) * 0.0005 + float(perf["terreno"]["margen_recorte_mm"]) * 0.001)
 	var img := Image.load_from_file(ProjectSettings.globalize_path("res://layers/puntos_interes/" + String(Pr["textura"])))
 	img.generate_mipmaps()
 	m.set_shader_parameter("tex", ImageTexture.create_from_image(img))
@@ -278,11 +282,30 @@ func _informe(t0: int, elevar: float, auto: bool, nu: int, nv: int, tris: int) -
 		mx = Vector2(maxf(mx.x, p.x), maxf(mx.y, p.y))
 	print("roca: ================ RECREACION APROXIMADA de Bunsen Peak, UNA SOLA malla (no es un escaneo) ================")
 	print("roca: construida en %d ms: malla %d x %d, %d triangulos, 1 MeshInstance3D + 1 colision" % [Time.get_ticks_msec() - t0, nu, nv, tris])
-	print("roca: boca del futuro hueco: x = %.2f, y = %.3f, z = %.2f (terreno %.3f + elevar %.3f%s); el hueco NO se muestra" % [H.x, H.y, H.z, g_ref, elevar, " AUTOMATICO" if auto else ""])
+	print("roca: boca del futuro hueco: x = %.2f, y = %.3f, z = %.2f (terreno %.3f + elevar %.3f%s)" % [H.x, H.y, H.z, g_ref, elevar, " AUTOMATICO" if auto else ""])
 	print("roca: normal de la losa = (%.4f, %.4f, %.4f) = -eje del taladro; inclinacion = %.2f deg" % [e_n.x, e_n.y, e_n.z, rad_to_deg(acos(e_n.y))])
 	print("roca: contorno %d puntos, %.2f m de ancho x %.2f m de largo (en el plano; largo estimado)" % [poly.size(), mx.x - mn.x, mx.y - mn.y])
 	print("roca: altura del borde de la losa sobre el suelo: minima %.2f m, maxima %.2f m (referencia estimada del lado alto: %.2f m)" % [amin, amax, float(Pr["alto_lado_alto_m"])])
 	print("roca: circulo plano alrededor del futuro hueco: radio %.1f cm (diametro %.0f cm), ondulacion maxima %.1f cm; borde enterrado %.0f cm bajo el terreno" % [r_plano * 100.0, r_plano * 200.0, amp * 100.0, ent * 100.0])
+
+
+# corte Z del hueco (semidisco), igual que el del terreno
+func poner_corte(radio: float, n_xz: Vector2) -> void:
+	if mat != null:
+		mat.set_shader_parameter("corte_r", radio)
+		mat.set_shader_parameter("corte_n", n_xz)
+
+
+# Un raycast vertical sobre la boca debe pegar en la roca (la colision es solida: el hueco solo se recorta en el dibujo).
+func verificar() -> void:
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var q := PhysicsRayQueryParameters3D.create(H + Vector3.UP * 3.0, H + Vector3.DOWN * 3.0)
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		print("roca: raycast vertical sobre la boca: NO pego")
+	else:
+		print("roca: raycast vertical desde arriba sobre la boca pega en '%s' a %.4f m de la boca (0 = al ras)" % [str(hit["collider"].name), (hit["position"] as Vector3).y - H.y])
 
 
 # ---- bloqueo de paso (el visor camina siguiendo el terreno, sin fisica) ----

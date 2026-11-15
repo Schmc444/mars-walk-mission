@@ -20,8 +20,8 @@
     "pin_bola_factor": 3.0,
     "roca": {
       "AVISO": "RECREACION APROXIMADA de la roca Bunsen Peak, UNA SOLA malla continua. NO es un escaneo. Lo 'estimado' no sale de datos.",
-      "mostrar_hueco": false,
-      "MOSTRAR_HUECO_NOTA": "false = solo la roca (el hueco aprobado sigue oculto); true = se muestra el hueco",
+      "mostrar_hueco": true,
+      "MOSTRAR_HUECO_NOTA": "true = el hueco aprobado va sobre la cara superior de la roca (misma x, z = lat/lon; solo cambia la altura); false = solo la roca",
       "ancho_m": 1.7,
       "FUENTE_ANCHO": "1.7 m: NASA/JPL (comunicado de abril de 2024)",
       "largo_m": 1.0,
