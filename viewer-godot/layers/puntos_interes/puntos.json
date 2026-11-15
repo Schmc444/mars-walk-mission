@@ -1,3 +1,66 @@
 [
-  {"nombre": "Ingenuity (ejemplo)", "lon": 77.322539, "lat": 18.497263, "texto": "Borra este ejemplo y pon aqui los puntos reales."}
+  {
+    "nombre": "Comet Geyser (Muestra 24)",
+    "lon": 77.3272192,
+    "lat": 18.49186664,
+    "texto": "Rock core M2020-1088-27, Bunsen Peak. Sol 1088 (12-mar-2024). Elevacion -2382.43 m.",
+    "pin_desfase_m": [0.3, 0.3],
+    "pin_radio_m": 0.02,
+    "perforacion": {
+      "elevacion_m": -2382.434036,
+      "diametro_mm": 13.0,
+      "profundidad_mm": 58.0,
+      "hade_deg": 29.45,
+      "azimuth_deg": 75.20,
+      "hade_desde_horizontal": false,
+      "azimuth_es_hacia_afuera": false,
+      "polvo": {
+        "radio_externo_mm": 35.0,
+        "irregularidad": 0.35,
+        "semilla": 7,
+        "color": [0.82, 0.80, 0.77]
+      },
+      "abrasion": {
+        "diametro_mm": 50.0,
+        "profundidad_mm": 7.0,
+        "pos_m": [0.20, 0.0],
+        "SUPUESTO": "profundidad 7 mm = valor provisional (el dato pegado dice 'Castle Geyser, 7 mm' pero no se sabe si es la profundidad de la abrasion); pos_m = [este, sur] relativa al hueco, estimada a ojo de la foto, SIN verificar"
+      },
+      "prueba": {
+        "camara_cerca_cm": 20.0,
+        "camara_general_cm": 45.0,
+        "regla_largo_cm": 10.0,
+        "regla_pos_m": [-0.05, 0.075]
+      },
+      "terreno": {
+        "separacion_mm": 0.6,
+        "margen_recorte_mm": 3.0,
+        "opaco_mm": 6.0,
+        "corte_radio_m": 0.14,
+        "SUPUESTO_colores": "colores planos de las piezas (no se leen del terreno, que es procedural): polvo, interior del hueco, parche y cara del corte",
+        "color_interior_arriba": [0.30, 0.20, 0.14],
+        "color_interior_fondo": [0.05, 0.035, 0.03],
+        "color_parche_arriba": [0.58, 0.36, 0.25],
+        "color_parche_fondo": [0.42, 0.26, 0.18],
+        "color_corte": [0.62, 0.40, 0.28]
+      },
+      "paredes": {
+        "imagen": "img/pared_watson_sol1088.png",
+        "um_por_px": 122.0,
+        "brillo": 0.55,
+        "saturacion": 0.55,
+        "degradado": 0.95,
+        "relieve": 1.0,
+        "SUPUESTO": "APROXIMACION: no existe ninguna imagen del interior real del hueco. Se usa un recorte de 167x112 px del mosaico WATSON del sol 1088 (superficie de la roca ANTES de perforar). um_por_px = 5 mm / 41 px de la barra de escala del archivo cg2.png (el original es de 31.7 um/px; el archivo esta reducido ~3.85x). Brillo, saturacion, degradado y relieve son valores esteticos ajustables, no medidos."
+      },
+      "SUPUESTOS": [
+        "hade = angulo del eje del taladro respecto a la VERTICAL (hade_desde_horizontal=false)",
+        "azimuth = rumbo horizontal del eje, medido desde el NORTE hacia el ESTE (horario), y es el rumbo hacia el que el hueco se inclina AL PROFUNDIZAR (azimuth_es_hacia_afuera=false)",
+        "marco SITE = norte / este / abajo; escena = x este, y arriba, z sur",
+        "en el visor la vertical es el eje y y el norte es -z; el eje del taladro NO se inclina con la pendiente del suelo",
+        "el parche se talla perpendicular al suelo local (no sabemos su orientacion real)",
+        "el fondo del hueco es plano y perpendicular al eje (la forma real del interior no esta definida en los datos)"
+      ]
+    }
+  }
 ]

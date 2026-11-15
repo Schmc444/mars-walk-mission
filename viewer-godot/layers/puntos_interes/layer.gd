@@ -25,9 +25,16 @@ func setup(w: WorldStreamer, c: Node) -> void:
 			xz = Vector2(p["x"], p["z"])
 		else:
 			xz = world.lonlat_to_world(p["lon"], p["lat"])
-		var pin := _make_pin(p.get("nombre", "?"), COLOR)
+		var pin := _make_pin(p.get("nombre", "?"), COLOR, float(p.get("pin_radio_m", 0.15)))
 		add_child(pin)
-		items.append([pin, xz.x, xz.y])
+		var pin_off: Array = p.get("pin_desfase_m", [0.0, 0.0])     # [este, sur] m: aparta el poste para que no tape lo que hay en el punto
+		items.append([pin, xz.x + float(pin_off[0]), xz.y + float(pin_off[1])])
+		if p.has("perforacion"):
+			var hc := Node3D.new()
+			hc.name = "hueco_muestra"
+			hc.set_script(load("res://layers/puntos_interes/hueco.gd"))
+			add_child(hc)
+			hc.setup(w, c, p["perforacion"], xz)
 		print("puntos_interes: ", p.get("nombre", "?"), " -> x=", snappedf(xz.x, 0.1), " z=", snappedf(xz.y, 0.1))
 
 
@@ -42,7 +49,7 @@ func _process(d: float) -> void:
 
 
 # --- pin: poste alto + esfera + nombre, pegado al suelo ---
-func _make_pin(nombre: String, color: Color) -> Node3D:
+func _make_pin(nombre: String, color: Color, radio_poste: float = 0.15) -> Node3D:
 	var n := Node3D.new()
 	n.name = nombre
 	var mat := StandardMaterial3D.new()
@@ -50,8 +57,8 @@ func _make_pin(nombre: String, color: Color) -> Node3D:
 	mat.albedo_color = color
 	var poste := MeshInstance3D.new()
 	var cm := CylinderMesh.new()
-	cm.top_radius = 0.15
-	cm.bottom_radius = 0.15
+	cm.top_radius = radio_poste
+	cm.bottom_radius = radio_poste
 	cm.height = ALTO_PIN
 	poste.mesh = cm
 	poste.material_override = mat

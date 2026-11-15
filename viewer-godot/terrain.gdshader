@@ -12,9 +12,24 @@ uniform float o_std = 0.15;
 uniform float ring_gain = 1.0;
 uniform vec2 shadow_dir = vec2(-0.64, -0.76); // horizontal direction the sunlight travels (x, z)
 varying float vdist;
+// --- capa puntos_interes: recortes del terreno bajo el hueco de la perforacion y el parche (apagados por defecto) ---
+uniform vec4 rec_a = vec4(0.0);     // hueco: xz del centro (x,y) y activo (z>0.5)
+uniform vec3 rec_a_m = vec3(0.0);   // forma cuadratica (sxx, sxy, syy)/R^2: dentro si w^T S w < 1
+uniform vec4 rec_b = vec4(0.0);     // parche abrasionado (igual)
+uniform vec3 rec_b_m = vec3(0.0);
+uniform vec4 rec_c = vec4(0.0);     // corte: xz del centro (x,y) y normal xz (z,w)
+uniform float rec_c_r = 0.0;        // radio del semidisco del corte (0 = apagado)
+varying vec2 hxa;                   // posicion xz relativa a cada recorte, calculada SIN restar numeros grandes (precision)
+varying vec2 hxb;
+varying vec2 hxc;
 uniform vec2 tile_origin = vec2(0.0);   // world xz of the mesh origin (tiled world); wpos stays in world metres
 uniform float planet_r = 0.0;           // >0: drop the far ground below the horizon like the ring meshes
 void vertex() {
+  // (traslacion del modelo - centro del recorte) es una resta exacta de dos floats cercanos; luego se suma el vertice local
+  vec2 m3 = MODEL_MATRIX[3].xz;
+  hxa = VERTEX.xz + (m3 - rec_a.xy);
+  hxb = VERTEX.xz + (m3 - rec_b.xy);
+  hxc = VERTEX.xz + (m3 - rec_c.xy);
   slope = degrees(acos(clamp(NORMAL.y, 0.0, 1.0)));
   wpos = VERTEX.xz + tile_origin;
   if (planet_r > 0.0) {
@@ -56,6 +71,9 @@ float peb(vec2 p, float cell, float ang, float dens, out vec2 grad, out float to
   return 1.0 - u2;
 }
 void fragment() {
+  if (rec_a.z > 0.5) { vec2 w = hxa; if (dot(w, vec2(rec_a_m.x * w.x + rec_a_m.y * w.y, rec_a_m.y * w.x + rec_a_m.z * w.y)) < 1.0) discard; }
+  if (rec_b.z > 0.5) { vec2 w = hxb; if (dot(w, vec2(rec_b_m.x * w.x + rec_b_m.y * w.y, rec_b_m.y * w.x + rec_b_m.z * w.y)) < 1.0) discard; }
+  if (rec_c_r > 0.0) { vec2 w = hxc; if (length(w) < rec_c_r && dot(w, rec_c.zw) > 0.0) discard; }
   float g = texture(ortho, UV).r;
   float d = vn(wpos*6.0)*0.5 + vn(wpos*23.0)*0.3 + vn(wpos*91.0)*0.2;
   float c = clamp((g - 0.227) / 0.313, 0.0, 1.0);
