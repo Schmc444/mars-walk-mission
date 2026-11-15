@@ -489,6 +489,7 @@ func _play_apply() -> void:
 	core.ride_s = r[0]
 	core.riding = r[1] == 1
 	rover_s = r[0]
+	core.cam.global_transform = Transform3D(Basis(r[3]), r[2])
 	var tnow := play_frame / play_fps
 	while play_ev_i < play_events.size() and float(play_events[play_ev_i]["t"]) <= tnow:
 		_play_event(play_events[play_ev_i])
