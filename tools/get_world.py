@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Descarga y descomprime el mundo (GitHub Release world-v1) en ./world.
 
-Repo privado: necesita un token con acceso de lectura al repo en GITHUB_TOKEN / GH_TOKEN,
-o la sesion de `gh auth login` (gh auth token). Requiere el binario `zstd` o Python >= 3.14.
+Repo publico: no necesita token. Si hay GITHUB_TOKEN / GH_TOKEN (o `gh auth login`) lo usa, util si el repo vuelve a ser privado. Requiere el binario `zstd` o Python >= 3.14.
 Uso: python tools/get_world.py [--dest world] [--tag world-v1]
 """
 import argparse, hashlib, json, os, shutil, subprocess, sys, tarfile, urllib.request
@@ -15,8 +14,6 @@ def token():
     t = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if not t and shutil.which("gh"):
         t = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True).stdout.strip()
-    if not t:
-        sys.exit("Falta token: exporta GITHUB_TOKEN (acceso de lectura a %s)" % REPO)
     return t
 
 
@@ -26,7 +23,9 @@ def main():
     ap.add_argument("--tag", default="world-v1")
     a = ap.parse_args()
     tk = token()
-    h = {"Authorization": "Bearer " + tk, "Accept": "application/vnd.github+json"}
+    h = {"Accept": "application/vnd.github+json"}
+    if tk:
+        h["Authorization"] = "Bearer " + tk
     rel = json.load(urllib.request.urlopen(urllib.request.Request(
         "https://api.github.com/repos/%s/releases/tags/%s" % (REPO, a.tag), headers=h)))
     asset = next(x for x in rel["assets"] if x["name"].endswith(".tar.zst"))
