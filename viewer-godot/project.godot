@@ -5,6 +5,10 @@ config/name="Mars Route Walker"
 run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 
+[autoload]
+
+AmbientAudio="*res://audio/ambient_audio.gd"
+
 [rendering]
 renderer/rendering_method="mobile"
 
