@@ -43,6 +43,8 @@ func _run() -> void:
 	check(p.get_parent() == rover, "es hijo del nodo del rover (Perseverance)")
 	check((p.stream as AudioStreamWAV).loop_mode == AudioStreamWAV.LOOP_FORWARD, "loop activo")
 	check(is_equal_approx(p.max_distance, 5.0), "max_distance = 5 m")
+	check(p.attenuation_filter_cutoff_hz >= 20500.0 and p.max_db == 0.0 and p.unit_size >= 5.0, "sin pasa-bajos por distancia y sin recorte 3D (unit_size >= radio)")
+	check(rs.VOLUME_DB == 0.0 and rs.RIDING_DB == 0.0 and is_equal_approx(AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Rover")), 0.0), "bus Rover a 0 dB y sin recorte al ir montado")
 	check(AudioServer.get_bus_index("Rover") >= 0 and p.bus == &"Rover", "bus Rover existe y lo usa el reproductor")
 	check(get_root().get_camera_3d() == main.cam, "el listener 3D es la camara del jugador (core.cam)")
 	# curva de cercania: plena hasta el inicio del fade, sin saltos, silencio exacto en el borde
@@ -68,7 +70,7 @@ func _run() -> void:
 	main.origin.global_position = rover.global_position + Vector3(1.5, 0, 0)
 	await create_timer(2.0).timeout
 	var v_mont: float = p.volume_db
-	check(v_pie > -1.0 and absf((v_pie - v_mont) - 15.0) < 1.5, "a pie %.1f dB, montado %.1f dB (-15 dB con fade)" % [v_pie, v_mont])
+	check(v_pie > -1.0 and absf(v_pie - v_mont) < 0.5, "a pie %.1f dB, montado %.1f dB (mismo nivel, RIDING_DB = 0)" % [v_pie, v_mont])
 	main.riding = false
 	main.origin.global_position = rover.global_position + Vector3(30, 0, 0)
 	await create_timer(1.0).timeout

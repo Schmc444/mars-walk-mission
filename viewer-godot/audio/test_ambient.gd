@@ -20,7 +20,7 @@ func _players() -> Array:
 	var stack: Array = [root]
 	while not stack.is_empty():
 		var n: Node = stack.pop_back()
-		if n is AudioStreamPlayer and n.stream is AudioStreamMP3:
+		if n is AudioStreamPlayer and n.stream is AudioStreamWAV:
 			out.append(n)
 		stack.append_array(n.get_children())
 	return out
@@ -41,9 +41,14 @@ func _run() -> void:
 	var p: AudioStreamPlayer = amb.player
 	check(AudioServer.get_bus_index("Ambient") >= 0, "bus Ambient existe")
 	check(p.bus == &"Ambient", "el reproductor usa el bus Ambient")
-	check(is_equal_approx(AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Ambient")), amb.VOLUME_DB), "volumen = VOLUME_DB (%.0f dB)" % amb.VOLUME_DB)
-	check((p.stream as AudioStreamMP3).loop, "loop activo")
+	check(is_equal_approx(AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Ambient")), amb.VOLUME_DB), "volumen del bus = VOLUME_DB (%.0f dB, sin recorte)" % amb.VOLUME_DB)
+	check(amb.VOLUME_DB == 0.0 and p.volume_db == 0.0, "bus y reproductor a 0 dB")
+	check((p.stream as AudioStreamWAV).loop_mode == AudioStreamWAV.LOOP_FORWARD, "loop activo")
 	check(p.playing, "está sonando")
+	var lim := false
+	for i in AudioServer.get_bus_effect_count(0):
+		lim = lim or AudioServer.get_bus_effect(0, i) is AudioEffectHardLimiter
+	check(lim and AudioServer.get_bus_volume_db(0) == 0.0, "Master a 0 dB con limitador de seguridad (sin clipping al sumar)")
 	# recargar la escena: el reproductor es el mismo y no se reinicia ni se duplica
 	var id0 := p.get_instance_id()
 	await create_timer(0.5).timeout

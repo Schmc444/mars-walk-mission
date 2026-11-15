@@ -13,12 +13,12 @@ extends Node
 ## Bus propio "Rover" (VOLUME_DB). Montado en el rover (core.riding) suena RIDING_DB más bajo, con fade.
 ## Respeta --norover (sin rover, sin sonido) y --no-ambient (apaga también este sonido).
 
-const STREAM_PATH := "res://audio/rover_selfnoise.wav"
+const STREAM_PATH := "res://audio/rover_selfnoise_norm.wav"   # copia normalizada (RMS -16 dBFS, pico -1 dBFS); original: rover_selfnoise.wav
 const BUS_NAME := "Rover"
 const RADIO_M := 5.0          # m: más allá no se oye (max_distance)
 const FADE_START_M := 2.5     # m: desde aquí el volumen baja hasta cero justo en RADIO_M (sin corte seco)
-const VOLUME_DB := -6.0       # volumen del bus Rover
-const RIDING_DB := -15.0      # dB extra mientras el jugador va montado en el rover
+const VOLUME_DB := 0.0        # volumen del bus Rover; el nivel ya viene normalizado en el archivo
+const RIDING_DB := 0.0        # dB extra mientras el jugador va montado (0 = igual que a pie; poner p. ej. -6 para bajarlo)
 const RIDING_FADE_S := 0.4    # s: constante de tiempo del cambio montado <-> a pie
 const MIC_HEIGHT := 0.8       # m sobre el origen del rover (micrófono del costado)
 const SILENT_DB := -80.0
@@ -91,7 +91,10 @@ func _ensure_player(core: Node) -> bool:
 	player.bus = BUS_NAME
 	player.max_distance = RADIO_M
 	player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
-	player.unit_size = 2.0
+	player.unit_size = RADIO_M          # ganancia >= 0 dB dentro de todo el radio: el único fade es el de edge_db()
+	player.max_db = 0.0                 # nunca por encima del nivel del archivo (sin clipping)
+	player.attenuation_filter_cutoff_hz = 20500.0   # sin pasa-bajos por distancia (por defecto 5 kHz y -24 dB)
+	player.attenuation_filter_db = 0.0
 	player.volume_db = SILENT_DB
 	player.position = Vector3(0, MIC_HEIGHT, 0)
 	r.add_child(player)
