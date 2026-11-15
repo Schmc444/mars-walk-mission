@@ -8,6 +8,7 @@ var core: Node
 var rover: Node3D
 var rover_s := 0.0
 var rec_on := false
+var rec_dot: MeshInstance3D
 var rec_data: Array = []      # [t, ride_s, riding, px,py,pz, qx,qy,qz,qw]
 var rec_t0 := 0
 var rec_save_clock := 0.0
@@ -17,6 +18,21 @@ var play_frame := 0
 var play_from_s := 0.0
 var play_first := true
 var play_fps := 30.0
+var rec_audio_pid := -1
+var rec_events: Array = []
+var rec_hud := -1
+var rec_menu := -2
+var rec_overlay := 0
+var rec_route := ""
+var rec_route_n := 0
+var play_events: Array = []
+var play_ev_i := 0
+var play_dir := ""
+var play_pitch := 0.0
+var play_level := false
+var play_smooth := 0.0
+var play_fov := 0.0
+var play_prev := Transform3D.IDENTITY
 var rover_full := false
 var rover_full_hq := "--rover=hq" in OS.get_cmdline_user_args()
 
@@ -46,6 +62,13 @@ func setup(w: WorldStreamer, c: Node) -> void:
 			if j != null:
 				play_data = j
 				print("ruta: reproduciendo ", play_data.size(), " muestras")
+				play_dir = a.get_slice("=", 1).get_base_dir()
+				var ep: String = a.get_slice("=", 1).get_basename() + ".events.json"
+				if FileAccess.file_exists(ep):
+					var ev = JSON.parse_string(FileAccess.get_file_as_string(ep))
+					if ev is Array:
+						play_events = ev
+						print("ruta: ", play_events.size(), " eventos")
 		elif a.begins_with("--play-from="):
 			play_from_s = float(a.get_slice("=", 1))
 		elif a.begins_with("--video-res="):
@@ -57,6 +80,13 @@ func setup(w: WorldStreamer, c: Node) -> void:
 			_rec_toggle.call_deferred()
 		if a.begins_with("--lever="):
 			lever = clampf(float(a.get_slice("=", 1)), -1.0, 1.0)
+	if play_data.is_empty() and core.right != null:
+		core.right.button_pressed.connect(func(n: String):
+			var mm = core.get_node_or_null("capa_minimapa")
+			if mm != null and mm.has_method("apuntado") and mm.apuntado():
+				return
+			if n == "trigger_click" and not (core.get("route_ui") != null and core.route_ui.menu_open):
+				_rec_toggle())
 
 
 func _unhandled_input(e: InputEvent) -> void:
@@ -69,6 +99,9 @@ func _unhandled_input(e: InputEvent) -> void:
 			lever = clampf(lever - 0.1, -1.0, 1.0)
 		KEY_SPACE:
 			lever = 0.0
+		KEY_F9:
+			if play_data.is_empty():
+				_rec_toggle()
 
 
 func _process(delta: float) -> void:
@@ -120,7 +153,13 @@ func _place() -> void:
 
 func _load_rover() -> Node3D:
 	var args := OS.get_cmdline_user_args()
-	if not ("--rover=full" in args or "--rover=hq" in args):
+	var en_play := false
+	for a in args:
+		if a.begins_with("--play="):
+			en_play = true
+	if en_play:
+		rover_full_hq = true
+	if not (en_play or "--rover=full" in args or "--rover=hq" in args):
 		return _box_rover()
 	rover_full = true
 	var doc := GLTFDocument.new()
@@ -304,21 +343,105 @@ func _light_mat(m: Material) -> Material:
 	return b
 
 
+func _rec_dot_set(on: bool) -> void:
+	if rec_dot == null:
+		rec_dot = MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.008
+		sm.height = 0.016
+		rec_dot.mesh = sm
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.albedo_color = Color(1.0, 0.05, 0.05)
+		m.no_depth_test = true
+		m.render_priority = 127
+		rec_dot.material_override = m
+		rec_dot.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		rec_dot.position = Vector3(0.11, 0.075, -0.5)
+		core.cam.add_child(rec_dot)
+	rec_dot.visible = on
+
+
 func _rec_toggle() -> void:
 	rec_on = not rec_on
+	_rec_dot_set(rec_on)
 	if rec_on:
 		rec_data = []
-		rec_t0 = Time.get_ticks_msec()
+		rec_events = []
+		rec_overlay = int(core.get("overlay")) if core.get("overlay") != null else 0
+		rec_hud = -1
+		rec_menu = -2
+		rec_events.append({"t": 0.0, "overlay": rec_overlay})
+		rec_route = ""
+		rec_route_n = 0
 		var dir := OS.get_environment("HOME") + "/mars/rec"
 		DirAccess.make_dir_recursive_absolute(dir)
-		rec_path = "%s/rec_%s.json" % [dir, Time.get_datetime_string_from_system().replace(":", "-")]
-		print("ruta: GRABANDO -> ", rec_path)
+		var stamp := Time.get_datetime_string_from_system().replace(":", "-")
+		rec_path = "%s/rec_%s.json" % [dir, stamp]
+		if not "--sinaudio" in OS.get_cmdline_user_args():
+			rec_audio_pid = OS.create_process("pw-record", ["--rate", "48000", "--channels", "1", "%s/rec_%s.wav" % [dir, stamp]])
+		rec_t0 = Time.get_ticks_msec()
+		print("ruta: GRABANDO -> ", rec_path, " audio pid ", rec_audio_pid)
+		_haptic(1)
 	else:
+		_rec_audio_stop()
+		_haptic(2)
 		_rec_save()
 		print("ruta: grabacion guardada, muestras=", rec_data.size())
 
 
+func _rec_audio_stop() -> void:
+	if rec_audio_pid > 0:
+		OS.execute("kill", ["-INT", str(rec_audio_pid)])
+		rec_audio_pid = -1
+
+
+func _haptic(n: int) -> void:
+	if core.right != null:
+		for i in n:
+			core.right.trigger_haptic_pulse("haptic", 0.0, 1.0, 0.25, i * 0.35)
+
+
+func _exit_tree() -> void:
+	_rec_audio_stop()
+	if rec_on:
+		_rec_save()
+
+
+func _rec_events_poll() -> void:
+	var t := snappedf((Time.get_ticks_msec() - rec_t0) / 1000.0, 0.001)
+	var ov = core.get("overlay")
+	if ov != null and int(ov) != rec_overlay:
+		rec_overlay = int(ov)
+		rec_events.append({"t": t, "overlay": rec_overlay})
+	var hv = core.get("hud_vr_on")
+	if hv != null and int(hv) != rec_hud:
+		rec_hud = int(hv)
+		rec_events.append({"t": t, "hud": bool(hv)})
+	var ui = core.get("route_ui")
+	if ui == null or ui.get("guide") == null:
+		return
+	var vm = ui.get("vr_menu")
+	if vm != null:
+		var mo: int = (1 + vm.hover) if vm.open else -1
+		if mo != rec_menu:
+			rec_menu = mo
+			rec_events.append({"t": t, "menu": vm.open, "hover": vm.hover if vm.open else -1})
+	var g = ui.guide
+	var cur: String = g.json_path if g.has_route() else ""
+	if cur != rec_route:
+		rec_route = cur
+		if cur == "":
+			rec_events.append({"t": t, "route_clear": true})
+		else:
+			rec_route_n += 1
+			var name := rec_path.get_file().get_basename() + "_ruta%d.json" % rec_route_n
+			DirAccess.copy_absolute(cur, rec_path.get_base_dir() + "/" + name)
+			rec_events.append({"t": t, "route": name, "name": g.goal_name, "status": ui.status})
+
+
 func _rec_sample(delta: float) -> void:
+	_rec_events_poll()
 	var t: Transform3D = core.cam.global_transform
 	var q := t.basis.get_rotation_quaternion()
 	rec_data.append([snappedf((Time.get_ticks_msec() - rec_t0) / 1000.0, 0.001), snappedf(core.ride_s, 0.01), 1 if core.riding else 0,
@@ -334,6 +457,9 @@ func _rec_save() -> void:
 	var f := FileAccess.open(rec_path, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(rec_data))
+	var fe := FileAccess.open(rec_path.get_basename() + ".events.json", FileAccess.WRITE)
+	if fe:
+		fe.store_string(JSON.stringify(rec_events))
 
 
 func _play_row() -> Array:
@@ -362,6 +488,35 @@ func _play_apply() -> void:
 	var r := _play_row()
 	core.ride_s = r[0]
 	core.riding = r[1] == 1
+	rover_s = r[0]
+	core.cam.global_transform = Transform3D(Basis(r[3]), r[2])
+	var tnow := play_frame / play_fps
+	while play_ev_i < play_events.size() and float(play_events[play_ev_i]["t"]) <= tnow:
+		_play_event(play_events[play_ev_i])
+		play_ev_i += 1
+
+
+func _play_event(e: Dictionary) -> void:
+	if e.has("hud") and core.get("hud_vr_on") != null and core.hud_vr_on != bool(e["hud"]):
+		core._toggle_hud_vr()
+	if e.has("menu"):
+		var vm = core.route_ui.get("vr_menu") if core.get("route_ui") != null else null
+		if vm != null:
+			vm.replay_hover = int(e.get("hover", -1))
+			if bool(e["menu"]) and not vm.open:
+				vm._open()
+			elif not bool(e["menu"]) and vm.open:
+				vm.close()
+	if e.has("overlay") and core.has_method("_toggle_hazard"):
+		core._toggle_hazard(int(e["overlay"]))
+	var ui = core.get("route_ui")
+	if ui == null:
+		return
+	if e.has("route"):
+		if ui.guide.set_route(play_dir + "/" + str(e["route"]), str(e.get("name", ""))):
+			ui._say(str(e.get("status", "")), 15.0)
+	elif e.has("route_clear"):
+		ui.guide.clear_route()
 
 
 func _play_cam() -> void:
@@ -374,7 +529,21 @@ func _play_cam() -> void:
 	var r := _play_row()
 	if r[1] == 1:
 		core.origin.position = rover.position + rover.basis.y * SEAT_Y
-	core.cam.global_transform = Transform3D(Basis(r[3]), r[2])
+	var xf := Transform3D(Basis(r[3]), r[2])
+	if play_level:
+		var f := -xf.basis.z
+		var pit := asin(clampf(f.y, -1.0, 1.0))
+		f.y = 0.0
+		if f.length() > 0.001:
+			xf.basis = Basis.looking_at(f.normalized(), Vector3.UP) * Basis(Vector3.RIGHT, pit)
+	if play_pitch != 0.0:
+		xf.basis = xf.basis * Basis(Vector3.RIGHT, deg_to_rad(play_pitch))
+	if play_smooth > 0.0 and play_prev != Transform3D.IDENTITY:
+		xf = play_prev.interpolate_with(xf, 1.0 - exp(-play_smooth / play_fps))
+	play_prev = xf
+	core.cam.global_transform = xf
+	if play_fov > 0.0:
+		core.cam.fov = play_fov
 	play_frame += 1
 	if play_frame / play_fps > play_data[play_data.size() - 1][0]:
 		print("ruta: reproduccion terminada")

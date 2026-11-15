@@ -15,6 +15,7 @@ var status_label: Label3D
 var ray: MeshInstance3D
 var hover := -1
 var grip_down := false
+var replay_hover := -2
 
 
 func setup(route_ui: Node, core_node: Node) -> void:
@@ -81,11 +82,11 @@ func _open() -> void:
 	ui.menu_open = true
 	var head: Transform3D = core.cam.global_transform
 	var f := -head.basis.z
-	f.y = 0.0
+	f.y = clampf(f.y, -0.5, 0.5)
 	f = f.normalized() if f.length() > 0.01 else Vector3.FORWARD
 	panel = Node3D.new()
 	add_child(panel)
-	panel.global_transform = Transform3D(Basis.looking_at(f, Vector3.UP), head.origin + f * DIST + Vector3(0, -0.05, 0))
+	panel.global_transform = Transform3D(Basis.looking_at(f, Vector3.UP), head.origin + f * DIST)
 	_build()
 
 
@@ -182,6 +183,9 @@ func _process(_dt: float) -> void:
 	status_label.text = s.left(70)
 	var a = _aim()
 	hover = -1
+	if replay_hover > -2:
+		hover = replay_hover
+		a = null
 	if a != null:
 		ray.visible = true
 		var d: Vector3 = a["d"]

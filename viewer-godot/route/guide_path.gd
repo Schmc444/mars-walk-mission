@@ -28,7 +28,7 @@ const T_BLOCKS := 3                     # BLOQUES
 var data: Dictionary
 var pts: Array[Vector3] = []
 var cum: PackedFloat32Array = []        # cumulative distance along the route
-const VIEWER_WALK_MS := 2.2  # velocidad a pie del visor (main.gd); el ETA del planificador modela el traje EVA (~0.7 m/s)
+const VIEWER_WALK_MS := 1.9  # velocidad a pie del visor (main.gd); el ETA del planificador modela el traje EVA (~0.7 m/s)
 var eta: PackedFloat32Array = []
 var slope: PackedFloat32Array = []
 var terrain: PackedInt32Array = []

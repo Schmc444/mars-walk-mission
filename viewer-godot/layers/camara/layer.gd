@@ -42,6 +42,9 @@ func setup(w: WorldStreamer, c: Node) -> void:
 	core = c
 	process_priority = -100
 	_build_rig()
+	rig.visible = false
+	ray.visible = false
+	reticle.visible = false
 	for a in OS.get_cmdline_user_args():
 		if a == "--cam-rec":
 			_rec_toggle.call_deferred()
@@ -76,12 +79,8 @@ func setup(w: WorldStreamer, c: Node) -> void:
 		t.capa = self
 		t.process_priority = 1000
 		add_child(t)
-	if core.right != null:
-		core.right.button_pressed.connect(func(n: String): if n == "trigger_click" and not (core.get("route_ui") != null and core.route_ui.menu_open): _foto())
 	if core.left != null:
 		core.left.button_pressed.connect(func(n: String): if n == "by_button": _toggle_visible())
-	if "--nocam" in OS.get_cmdline_user_args():
-		_toggle_visible()
 
 
 
