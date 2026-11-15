@@ -15,6 +15,7 @@ var status_label: Label3D
 var ray: MeshInstance3D
 var hover := -1
 var grip_down := false
+var replay_hover := -2
 
 
 func setup(route_ui: Node, core_node: Node) -> void:
@@ -182,6 +183,9 @@ func _process(_dt: float) -> void:
 	status_label.text = s.left(70)
 	var a = _aim()
 	hover = -1
+	if replay_hover > -2:
+		hover = replay_hover
+		a = null
 	if a != null:
 		ray.visible = true
 		var d: Vector3 = a["d"]

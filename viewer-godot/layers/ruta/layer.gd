@@ -19,6 +19,8 @@ var play_first := true
 var play_fps := 30.0
 var rec_audio_pid := -1
 var rec_events: Array = []
+var rec_hud := -1
+var rec_menu := -2
 var rec_overlay := 0
 var rec_route := ""
 var rec_route_n := 0
@@ -147,7 +149,13 @@ func _place() -> void:
 
 func _load_rover() -> Node3D:
 	var args := OS.get_cmdline_user_args()
-	if not ("--rover=full" in args or "--rover=hq" in args):
+	var en_play := false
+	for a in args:
+		if a.begins_with("--play="):
+			en_play = true
+	if en_play:
+		rover_full_hq = true
+	if not (en_play or "--rover=full" in args or "--rover=hq" in args):
 		return _box_rover()
 	rover_full = true
 	var doc := GLTFDocument.new()
@@ -337,6 +345,8 @@ func _rec_toggle() -> void:
 		rec_data = []
 		rec_events = []
 		rec_overlay = int(core.get("overlay")) if core.get("overlay") != null else 0
+		rec_hud = -1
+		rec_menu = -2
 		rec_events.append({"t": 0.0, "overlay": rec_overlay})
 		rec_route = ""
 		rec_route_n = 0
@@ -380,9 +390,19 @@ func _rec_events_poll() -> void:
 	if ov != null and int(ov) != rec_overlay:
 		rec_overlay = int(ov)
 		rec_events.append({"t": t, "overlay": rec_overlay})
+	var hv = core.get("hud_vr_on")
+	if hv != null and int(hv) != rec_hud:
+		rec_hud = int(hv)
+		rec_events.append({"t": t, "hud": bool(hv)})
 	var ui = core.get("route_ui")
 	if ui == null or ui.get("guide") == null:
 		return
+	var vm = ui.get("vr_menu")
+	if vm != null:
+		var mo: int = (1 + vm.hover) if vm.open else -1
+		if mo != rec_menu:
+			rec_menu = mo
+			rec_events.append({"t": t, "menu": vm.open, "hover": vm.hover if vm.open else -1})
 	var g = ui.guide
 	var cur: String = g.json_path if g.has_route() else ""
 	if cur != rec_route:
@@ -452,6 +472,16 @@ func _play_apply() -> void:
 
 
 func _play_event(e: Dictionary) -> void:
+	if e.has("hud") and core.get("hud_vr_on") != null and core.hud_vr_on != bool(e["hud"]):
+		core._toggle_hud_vr()
+	if e.has("menu"):
+		var vm = core.route_ui.get("vr_menu") if core.get("route_ui") != null else null
+		if vm != null:
+			vm.replay_hover = int(e.get("hover", -1))
+			if bool(e["menu"]) and not vm.open:
+				vm._open()
+			elif not bool(e["menu"]) and vm.open:
+				vm.close()
 	if e.has("overlay") and core.has_method("_toggle_hazard"):
 		core._toggle_hazard(int(e["overlay"]))
 	var ui = core.get("route_ui")

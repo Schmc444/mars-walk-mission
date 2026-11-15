@@ -91,11 +91,18 @@ func setup_world(core_node: Node, guide_node: Node, world: Node) -> void:
 	scene_dir = world.dir.trim_suffix("/")
 	has_geo = true
 	_init_common()
-	if core.get("left") != null and core.left != null:
+	if (core.get("left") != null and core.left != null) or _is_play():
 		vr_menu = load("res://route/vr_menu.gd").new()
 		vr_menu.name = "VRMenu"
 		core.add_child(vr_menu)
 		vr_menu.setup(self, core)
+
+
+func _is_play() -> bool:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--play="):
+			return true
+	return false
 
 
 func _init_common() -> void:

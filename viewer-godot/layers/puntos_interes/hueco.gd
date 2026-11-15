@@ -551,6 +551,10 @@ func _actualizar_camara() -> void:
 func _poner_hud() -> void:
 	if hud == null:
 		return
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--play="):
+			hud.visible = false
+			return
 	if inspect:
 		hud.text = "Hueco de la muestra 24 (13 mm). Reconstruccion aproximada; paredes con textura APROXIMADA (WATSON sol 1088).   V volver | Z corte | Q/E girar | +/- zoom"
 	else:
