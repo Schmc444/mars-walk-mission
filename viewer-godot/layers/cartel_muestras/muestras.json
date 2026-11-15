@@ -26,6 +26,14 @@
       "opacidad": 1.0,
       "modo_inicial": "compacto",
       "ampliado_activo": false,
+      "vr": {
+        "altura_factor_ojos": 0.7,
+        "altura_min_m": 0.8,
+        "altura_max_m": 1.5,
+        "distancia_min_cabeza_m": 1.1,
+        "inclinacion_max_deg": 25,
+        "mirada_max_vertical_m": 0.25
+      },
       "mirada_activa": true,
       "mirada_umbral_deg": 30.0,
       "mirada_espera_inicio_s": 4.0,

@@ -58,6 +58,8 @@ var dbg_min_dist := 1e9
 var dbg_min_holg := 1e9
 var dbg_max_tapado := 0.0
 var cabeza_impresa := false
+var vr_aplicado := false
+var forzar_vr := false
 
 
 func setup(w: WorldStreamer, c: Node, m: Dictionary, pos_xz: Vector2) -> void:
@@ -71,6 +73,8 @@ func setup(w: WorldStreamer, c: Node, m: Dictionary, pos_xz: Vector2) -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--cartel-modo="):
 			idx_ini = 1 if a.get_slice("=", 1) == "ampliado" else 0
+		elif a == "--cartel-vr":
+			forzar_vr = true
 		elif a == "--cartel-debug-mirada":
 			dbg_mirada = true
 		elif a.begins_with("--cartel-debug-orbita"):
@@ -287,6 +291,13 @@ func _cabeza() -> Node3D:
 func _process(d: float) -> void:
 	if not listo:
 		return
+	# En VR (o con --cartel-vr) se aplican los ajustes del bloque "vr": la cabeza esta a ~1.6 m y el cartel de escritorio queda bajo y casi vertical.
+	if not vr_aplicado and (forzar_vr or core.get("in_xr") == true):
+		vr_aplicado = true
+		if C.has("vr"):
+			C = C.duplicate()
+			C.merge(C["vr"], true)
+			print("cartel_muestras: ajustes VR aplicados")
 	if dbg:
 		_debug_orbita(d)
 	t_vida += d
