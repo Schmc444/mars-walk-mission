@@ -26,9 +26,9 @@ def scene_factory(tmp_path):
     return f
 
 
-def make_world(folder, block=100, tiles=((0, 0), (1, 0), (0, 1), (1, 1)), sx=0.9, nodata=None, plane=(0.01, 0.02), blocked_tiles=()):
+def make_world(folder, block=100, tiles=((0, 0), (1, 0), (0, 1), (1, 1)), sx=0.9, nodata=None, plane=(0.01, 0.02), bump=0.0):
     """World sintético mínimo (world.json + terrain/t1,t5,t20 + ortho + route.json). La altura es un plano en PÍXELES del mosaico:
-    h = a·px + b·py, así que cualquier celda del recorte debe valer exactamente a·(x/sx + opx) + b·(z/sz + opy)."""
+    h = a·px + b·py (+ bump·sin(px/3)·cos(py/4) si bump > 0, relieve fino que un grid grueso no representa), así que cualquier celda del recorte debe valer exactamente a·(x/sx + opx) + b·(z/sz + opy)."""
     opx, opy = 37.0, 21.0
     nodata = nodata or {}
     w = {"schema": 1, "kind": "tiled_world", "body": {"radius_m": 3396190.0}, "block": block, "spacing_x": sx, "spacing_z": 1.0,
@@ -45,7 +45,8 @@ def make_world(folder, block=100, tiles=((0, 0), (1, 0), (0, 1), (1, 1)), sx=0.9
         for bx, by in tiles:
             px = bx * block + np.arange(n) * step
             py = by * block + np.arange(n) * step
-            (a * px[None, :] + b * py[:, None]).astype("<f4").tofile(os.path.join(folder, "terrain", lod, "%d_%d.f32" % (bx, by)))
+            hh = a * px[None, :] + b * py[:, None] + bump * np.sin(px[None, :] / 3.0) * np.cos(py[:, None] / 4.0)
+            hh.astype("<f4").tofile(os.path.join(folder, "terrain", lod, "%d_%d.f32" % (bx, by)))
     for lod, size in (("o100", block), ("o400", max(block // 4, 2))):
         os.makedirs(os.path.join(folder, "ortho", lod), exist_ok=True)
         for bx, by in tiles:

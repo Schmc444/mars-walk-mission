@@ -283,11 +283,21 @@ def export(g, nodes, spacing=1.0):
     pts.append(xz[-1])
     out_pts, eta, slope, terr, warn = [], [0.0], [], [], []
     t = 0.0
+    # world: la altura y la pendiente salen de los tiles (mismo LOD que la malla del visor) y no del grid remuestreado en metros,
+    # que interpola dos veces (hasta ~0.4 m de error a 5 m) y suaviza las pendientes de la celda gruesa (a 5 m ocultaba pendientes de 25-30°).
+    wd = g.get("world")
+    px_, pz_ = np.array([p[0] for p in pts]), np.array([p[1] for p in pts])
+    y_tile = wd.heights_at(px_, pz_, int(g["step"]) if g["step"] in (1, 5, 20) else 1) if wd is not None else None
+    s_fine = wd.slopes_at(px_, pz_, 1) if wd is not None else None
     for i, (x, z) in enumerate(pts):
         y = float(bilinear(g, g["h"], x, z))
+        if y_tile is not None and np.isfinite(y_tile[i]):
+            y = float(y_tile[i])
         out_pts.append([round(x, 2), round(y, 3), round(z, 2)])
         r, c = to_rc(g, x, z)
         sl = float(g["slope"][r, c])
+        if s_fine is not None and np.isfinite(s_fine[i]):
+            sl = float(s_fine[i])
         slope.append(round(sl, 1))
         terr.append(int(g["cls"][r, c]))
         if i:

@@ -62,6 +62,35 @@ class World:
         return self._route
 
 
+    def heights_at(self, xs, zs, lod=1):
+        """Altura (m) en puntos (xs, zs) del frame world, vectorizado: interpolación bilineal sobre el LOD pedido (1, 5 o 20 px),
+        igual que `WorldStreamer.height_at` (que usa t1 si el tile está cargado cerca y t5 si no). NaN fuera de los tiles."""
+        xs, zs = np.asarray(xs, "f8"), np.asarray(zs, "f8")
+        out = np.full(xs.shape, np.nan)
+        d = {1: "t1", 5: "t5", 20: "t20"}[lod]
+        n = int(self.block // lod) + 1
+        px, py = xs / self.sx + self.opx, zs / self.sz + self.opy
+        bx, by = np.floor(px / self.block).astype(int), np.floor(py / self.block).astype(int)
+        for k in {(int(a), int(b)) for a, b in zip(bx, by)}:
+            if k not in self.tiles:
+                continue
+            m = (bx == k[0]) & (by == k[1])
+            A = self.heights(d, n, k)
+            gx = np.clip((px[m] - k[0] * self.block) / lod, 0, n - 1.001)
+            gz = np.clip((py[m] - k[1] * self.block) / lod, 0, n - 1.001)
+            ix, iz = gx.astype(int), gz.astype(int)
+            tx, tz = gx - ix, gz - iz
+            out[m] = (A[iz, ix] * (1 - tx) + A[iz, ix + 1] * tx) * (1 - tz) + (A[iz + 1, ix] * (1 - tx) + A[iz + 1, ix + 1] * tx) * tz
+        return out
+
+    def slopes_at(self, xs, zs, lod=1):
+        """Pendiente (°) como `WorldStreamer.slope_deg`: diferencias centrales de ±1 m sobre la altura interpolada del LOD."""
+        xs, zs = np.asarray(xs, "f8"), np.asarray(zs, "f8")
+        dx = (self.heights_at(xs + 1, zs, lod) - self.heights_at(xs - 1, zs, lod)) / 2.0
+        dz = (self.heights_at(xs, zs + 1, lod) - self.heights_at(xs, zs - 1, lod)) / 2.0
+        return np.degrees(np.arctan(np.hypot(dx, dz)))
+
+
 def pick_lod(nx_m, nz_m):
     """(paso, carpeta) para un recorte de nx_m x nz_m metros, o None si es demasiado grande."""
     for step, d in LODS:
@@ -124,7 +153,7 @@ def build_crop(world, x_min, x_max, z_min, z_max, step_lod=None):
         img = np.where(np.isfinite(img), img, np.median(img[have_img]))
         img_out = img
     g = dict(h=h, n=max(nx, nz), step=float(step), half=max(nx, nz) * step / 2, x0=float(x_min), z0=float(z_min), nodata=nodata,
-             img=img_out, route=[], scene=None, georef=world.georef, kind="world", lod=d, partial_nodata=partial)
+             img=img_out, route=[], scene=None, georef=world.georef, kind="world", world=world, lod=d, partial_nodata=partial)
     g["route"] = []
     rp = world.route_points()
     if len(rp):

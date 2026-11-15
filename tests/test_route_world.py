@@ -101,3 +101,24 @@ def test_world_real_ingenuity_y_tiles_completos():
     assert r.route["summary"]["length_m"] > 7800 and r.timing["total_ms"] < 60000
     lejos = m.plan_route(L, (0, 0), (50000, 0))
     assert not lejos.ok and lejos.error_code == "fuera_de_capa"
+
+
+def test_world_altura_y_pendiente_salen_de_los_tiles(tmp_path):
+    """Auditoría B3/B4: la y del JSON debe ser la del tile (como WorldStreamer.height_at) y la pendiente la local de 1 m.
+    Antes se interpolaba dos veces (tile -> grid en metros -> punto) y la pendiente era la de la celda gruesa."""
+    folder, w = make_world(tmp_path / "w", block=200, tiles=[(bx, by) for bx in range(3) for by in range(3)], plane=(0.002, 0.002), bump=0.8)
+    L = m.load_layers(folder)
+    W = L["world"]
+    a = world_xz(w, 60, 60)
+    b = world_xz(w, 520, 480)
+    r = m.plan_route(L, a, b, lod=5, risk_weight=0.0, snap_m=60)
+    assert r.ok and r.route["summary"]["grid"]["step_m"] == 5.0
+    P = np.array(r.route["points"])
+    y_tile = W.heights_at(P[:, 0], P[:, 2], 5)
+    assert np.abs(P[:, 1] - y_tile).max() < 2e-3                            # igual que la superficie t5 del visor
+    g = r.cost_grid
+    y_grid = np.array([m.bilinear(g, g["h"], x, z) for x, z in P[:, [0, 2]]])
+    assert np.abs(y_grid - y_tile).max() > 0.05                             # el método viejo sí fallaba (el test es significativo)
+    s_fine = W.slopes_at(P[:, 0], P[:, 2], 1)
+    assert np.abs(np.array(r.route["slope_deg"]) - np.round(s_fine, 1)).max() < 0.11
+    assert np.abs(np.array([g["slope"][m.to_rc(g, x, z)] for x, z in P[:, [0, 2]]]) - s_fine).max() > 3   # la celda de 5 m ocultaba la pendiente real
