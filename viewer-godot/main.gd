@@ -683,12 +683,23 @@ func _setup_xr() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
+var overlay := 0   # 0 normal, 1 pendiente, 2.. vistas de falso color de la capa atmosfera
+
+
 func _toggle_hazard() -> void:
-	hazard_on = not hazard_on
+	## Cicla: normal -> pendiente -> vistas de atmosfera (calor, radiacion, O2, presion, polvo) -> normal.
+	var atm = get_node_or_null("capa_atmosfera")
+	var has_atm: bool = atm != null and atm.has_method("alternar_vista")
+	overlay = (overlay + 1) % (7 if has_atm else 2)
+	hazard_on = overlay == 1
 	if world_mode:
 		W.set_hazard(hazard_on)
-		return
-	terrain_mat.set_shader_parameter("hazard", hazard_on)
+	else:
+		terrain_mat.set_shader_parameter("hazard", hazard_on)
+	if has_atm:
+		var want: int = overlay - 2 if overlay >= 2 else -1
+		if atm.vista != want:
+			atm.alternar_vista(atm.vista if want < 0 else want)
 
 
 func _toggle_ride() -> void:
