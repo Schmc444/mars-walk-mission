@@ -22,6 +22,16 @@ const O2_TIERRA := 21200.0          # Pa, presion parcial de O2 a nivel del mar 
 const P_TIERRA := 101325.0          # Pa
 const P_ARMSTRONG := 6300.0         # Pa, limite de Armstrong (el agua hierve a 37 C)
 const DD_POR_KM2 := 2.5             # remolinos de polvo por km2 por sol en Jezero (Hueso 2023, Toledo 2023: 1.3-3.4)
+# Encuentros de vortices por hora segun la hora local (LTST), medidos por MEDA en Jezero en los primeros 89 sols
+# (Jackson 2022, PSJ, figura 6): casi nada antes de las 10, pico de ~1.5/h a las 13, se apagan hacia las 19.
+const ACTIVIDAD_DD := [[8.5, 0.0], [9.0, 0.02], [10.0, 0.19], [11.0, 0.93], [12.0, 1.27], [13.0, 1.49], [14.0, 0.90],
+	[15.0, 0.89], [16.0, 0.51], [17.0, 0.21], [18.0, 0.08], [19.0, 0.08], [19.5, 0.0]]
+const ACTIVIDAD_DD_SUMA := 6.57     # suma de la tabla (encuentros por sol): reparte DD_POR_KM2 entre las horas
+# Cuanto dura un remolino. SUPUESTO (no viene de los articulos citados: MEDA mide ~20 s de paso por el sensor,
+# no la vida completa). Con 5 min y el pico de las 13 h salen ~0.05 remolinos por km2 al mismo tiempo.
+const VIDA_DD_MIN := 5.0
+const MULT_DD := 1.0                # 1 = realista. Subirlo solo para ilustrar (mas remolinos de los que hay de verdad)
+const PARCHES_AMPL := 0.15          # τ extra maximo de los parches sinteticos (antes 1.1: exageraba; el fondo real casi no cambia en km)
 
 # Rangos de color (0 = tono claro, 1 = tono oscuro)
 const TAU_MIN := 0.2
@@ -110,7 +120,7 @@ func tau_fondo(sol: float) -> float:
 func tau_parches(sol: float, x: float, z: float) -> float:
 	var n := ruido_polvo.get_noise_2d(x, z) * 0.5 + 0.5
 	var actividad := 0.7 + 0.6 * smoothstep(0.0, 120.0, ls_de_sol(sol))
-	return 1.1 * smoothstep(0.52, 0.85, n) * actividad
+	return PARCHES_AMPL * smoothstep(0.52, 0.85, n) * actividad
 
 
 func t_polvo(tau: float) -> float:
@@ -121,37 +131,55 @@ func luz_bloqueada(tau: float) -> float:
 	return 1.0 - exp(-tau)
 
 
-# Remolinos de polvo (SINTETICO en posicion; frecuencia y tamanio segun MEDA).
-# Devuelve hasta `maximo` remolinos cercanos: [Vector4(x, z, radio, alto)].
-func remolinos(sol: float, cx: float, cz: float, t_seg: float, radio_busqueda: float, maximo: int) -> Array:
+# Actividad de remolinos a esa hora local (encuentros por hora, tabla ACTIVIDAD_DD interpolada).
+func actividad_dd(hora: float) -> float:
+	var h := fposmod(hora, 24.0)
+	for i in ACTIVIDAD_DD.size() - 1:
+		var a: Array = ACTIVIDAD_DD[i]
+		var b: Array = ACTIVIDAD_DD[i + 1]
+		if h >= a[0] and h <= b[0]:
+			return lerpf(a[1], b[1], (h - a[0]) / (b[0] - a[0]))
+	return 0.0
+
+
+# Remolinos que existen AHORA cerca del jugador. Cantidad y tamanio segun MEDA; posicion SINTETICA.
+#   remolinos a la vez por km2 = DD_POR_KM2 (por sol) x fraccion de esa hora x vida de cada uno
+# Cada casilla de 400 m tira la probabilidad una vez por "vida" (VIDA_DD_MIN) del tiempo real: los remolinos aparecen,
+# crecen, se deshacen y otros aparecen en otro lado. Determinista: la misma casilla, sol, hora y ventana dan lo mismo.
+# Devuelve hasta `maximo`: [Vector4(x, z, radio, alto)].
+func remolinos(sol: float, cx: float, cz: float, t_seg: float, radio_busqueda: float, maximo: int, hora: float) -> Array:
 	var celda := 400.0
-	var por_celda := DD_POR_KM2 * celda * celda / 1.0e6        # 0.4 por celda
+	var por_hora := DD_POR_KM2 * actividad_dd(hora) / ACTIVIDAD_DD_SUMA        # remolinos por km2 que nacen en esta hora
+	var p_celda := MULT_DD * por_hora * (VIDA_DD_MIN / 60.0) * celda * celda / 1.0e6
 	var lista: Array = []
+	if p_celda <= 0.0:
+		return lista
+	var vida_s := VIDA_DD_MIN * 60.0
 	var c0 := Vector2i(floori((cx - radio_busqueda) / celda), floori((cz - radio_busqueda) / celda))
 	var c1 := Vector2i(floori((cx + radio_busqueda) / celda), floori((cz + radio_busqueda) / celda))
 	var dia := int(floor(sol))
 	for j in range(c0.y, c1.y + 1):
 		for i in range(c0.x, c1.x + 1):
+			var desfase := float(hash(Vector2i(i, j)) % 1000) / 1000.0 * vida_s     # cada casilla con su propio reloj
+			var ventana := floori((t_seg + desfase) / vida_s)
+			var edad := fposmod(t_seg + desfase, vida_s) / vida_s                 # 0..1 dentro de su vida
 			var rng := RandomNumberGenerator.new()
-			rng.seed = hash(Vector3i(i, j, dia))
-			var n := 0
-			var u := rng.randf()
-			if u < por_celda:
-				n = 1
-			if u < por_celda * 0.25:
-				n = 2
-			for k in n:
-				var ax := (i + rng.randf()) * celda
-				var az := (j + rng.randf()) * celda
-				var r := exp(lerpf(log(5.0), log(135.0), pow(rng.randf(), 1.7)))   # 5-135 m (Hueso 2023)
-				var alto := lerpf(120.0, 450.0, rng.randf())
-				var w := lerpf(0.004, 0.012, rng.randf())
-				var fase := rng.randf() * TAU
-				var px := ax + 90.0 * sin(t_seg * w + fase)
-				var pz := az + 90.0 * cos(t_seg * w * 0.7 + fase)
-				var d := Vector2(px - cx, pz - cz).length()
-				if d < radio_busqueda:
-					lista.append([d, Vector4(px, pz, maxf(r, 10.0), alto)])
+			rng.seed = hash([i, j, dia, ventana])
+			if rng.randf() >= p_celda:
+				continue
+			var ax := (i + rng.randf()) * celda
+			var az := (j + rng.randf()) * celda
+			# diametro 5-135 m con mediana ~26 m (Toledo 2023: mediana 25 m, maximo ~132 m); el radio es la mitad
+			var diam := exp(lerpf(log(5.0), log(135.0), rng.randf()))
+			var alto := lerpf(120.0, 450.0, rng.randf())               # SUPUESTO (altura de la columna)
+			var dir := rng.randf() * TAU
+			var vel := lerpf(2.0, 6.0, rng.randf())                    # m/s, se mueven con el viento (supuesto)
+			var px := ax + cos(dir) * vel * edad * vida_s
+			var pz := az + sin(dir) * vel * edad * vida_s
+			var forma := sin(PI * edad)                                # crece y se deshace
+			var d := Vector2(px - cx, pz - cz).length()
+			if d < radio_busqueda and forma > 0.05:
+				lista.append([d, Vector4(px, pz, maxf(diam * 0.5 * (0.4 + 0.6 * forma), 3.0), alto * forma)])
 	lista.sort_custom(func(a, b): return a[0] < b[0])
 	var out: Array = []
 	for e in lista.slice(0, maximo):

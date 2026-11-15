@@ -146,6 +146,11 @@ var remol: Array = []
 var ui: PanelContainer
 var valores_lbl := {}           # canal -> Label "Oxigeno: 0.16 %"
 var sonido_lbl: Label
+var estado_lbl: Label           # "Hora: 14:32 · Batería: 78 %"
+var bateria_ok := false         # se muestra la bateria solo si es la del visor (app corriendo en el visor) o si se pide para probar
+var bateria := -1               # % (-1 = todavia no se sabe / no disponible)
+var _t_bat := 0.0
+var _hilo_bat: Thread
 var canvas: CanvasLayer
 var vista_vr: SubViewport
 var panel_3d: MeshInstance3D
@@ -167,6 +172,11 @@ func setup(w: WorldStreamer, c: Node) -> void:
 	core = c
 	var args := OS.get_cmdline_user_args()
 	en_3d = bool(core.get("in_xr")) or "--atm-panel-3d" in args
+	# Bateria: Godot 4 no tiene funcion de bateria; se lee del sistema donde corre la app (_leer_bateria). Si la app corre
+	# dentro del visor (standalone: Android, o Linux ARM como SteamOS), es la de los lentes. Con el visor conectado a la PC
+	# (SteamVR / Link) seria la de la PC: no se muestra. --atm-bateria-pc la muestra igual (para probar en la laptop).
+	var en_visor := OS.get_name() == "Android" or (bool(core.get("in_xr")) and OS.get_name() == "Linux" and OS.has_feature("arm64"))
+	bateria_ok = en_visor or "--atm-bateria-pc" in args
 	_crear_neblina()
 	_crear_vista()
 	_crear_panel()
@@ -320,7 +330,7 @@ func _process(delta: float) -> void:
 	_generar_campo(p)
 	if _t_rem <= 0.0:
 		_t_rem = 0.1
-		remol = m.remolinos(sol_actual, p.x, p.z, Time.get_ticks_msec() / 1000.0, 1200.0, 16)
+		remol = m.remolinos(sol_actual, p.x, p.z, Time.get_ticks_msec() / 1000.0, 1200.0, 16, hora)
 		_subir_remolinos()
 	if _t_ui <= 0.0:
 		_t_ui = 0.2
@@ -338,6 +348,64 @@ func _process(delta: float) -> void:
 		ui.position = Vector2(vs.x * (1.0 - PANEL_MARGEN_X) - ui.size.x, vs.y * PANEL_MARGEN_Y)   # lateral derecho
 	if panel_3d and ver_panel:
 		_seguir_panel(delta)
+	if bateria_ok:
+		_t_bat -= delta
+		if _t_bat <= 0.0:
+			_t_bat = 30.0
+			_pedir_bateria()
+
+
+# ---------------------------------------------------------------- bateria del visor (Godot 4 no la expone: se lee del sistema)
+
+func _pedir_bateria() -> void:
+	match OS.get_name():
+		"Android":
+			bateria = _bateria_android()
+		"Linux":
+			bateria = _bateria_linux()
+		"Windows":
+			# PowerShell tarda ~1 s: se consulta en un hilo para no trabar el visor
+			if _hilo_bat == null or not _hilo_bat.is_alive():
+				if _hilo_bat != null:
+					_hilo_bat.wait_to_finish()
+				_hilo_bat = Thread.new()
+				_hilo_bat.start(_bateria_windows)
+
+
+# Android (visor standalone, p. ej. Quest): BatteryManager.getIntProperty(BATTERY_PROPERTY_CAPACITY = 4).
+func _bateria_android() -> int:
+	if not Engine.has_singleton("AndroidRuntime"):
+		return -1
+	var ctx = Engine.get_singleton("AndroidRuntime").getApplicationContext()
+	if ctx == null:
+		return -1
+	var bm = ctx.getSystemService("batterymanager")
+	return int(bm.getIntProperty(4)) if bm != null else -1
+
+
+# Linux (visor con SteamOS u otro Linux): /sys/class/power_supply/<bateria>/capacity
+func _bateria_linux() -> int:
+	var base := "/sys/class/power_supply"
+	for d in DirAccess.get_directories_at(base):
+		var tipo := FileAccess.get_file_as_string("%s/%s/type" % [base, d]).strip_edges()
+		if tipo == "Battery":
+			var cap := FileAccess.get_file_as_string("%s/%s/capacity" % [base, d]).strip_edges()
+			if cap.is_valid_int():
+				return int(cap)
+	return -1
+
+
+# Windows (solo para probar en la laptop con --atm-bateria-pc). Corre en un hilo.
+func _bateria_windows() -> void:
+	var salida := []
+	OS.execute("powershell", ["-NoProfile", "-Command", "(Get-CimInstance Win32_Battery).EstimatedChargeRemaining"], salida)
+	var txt := (salida[0] as String).strip_edges() if salida.size() > 0 else ""
+	set_deferred("bateria", int(txt) if txt.is_valid_int() else -1)
+
+
+func _exit_tree() -> void:
+	if _hilo_bat != null:
+		_hilo_bat.wait_to_finish()
 
 
 # Panel VR: orientacion filtrada con zona muerta. Dentro de la zona muerta no se mueve; fuera, se acerca a la cabeza con
@@ -681,6 +749,9 @@ func _crear_panel() -> void:
 	sonido_lbl = _label()
 	sonido_lbl.visible = false
 	vb.add_child(sonido_lbl)
+	estado_lbl = _label()
+	estado_lbl.add_theme_color_override("font_color", Color(0.75, 0.78, 0.82))
+	vb.add_child(estado_lbl)
 	if en_3d:
 		# en 3D el panel se mezcla antes del tonemapping: con fondo semitransparente, los colores HDR de las vistas
 		# se filtraban (franja de color sobre el horizonte). Fondo opaco; solo las esquinas redondeadas quedan transparentes.
@@ -763,6 +834,11 @@ func _actualizar_panel() -> void:
 		valores_lbl[c].text = ("▶ " if c == activo else "") + textos[c]
 	if sonido_on:
 		sonido_lbl.text = "Sonido: %.0f Hz" % f_obj
+	var t := Time.get_time_dict_from_system()
+	var estado := "Hora: %02d:%02d" % [t["hour"], t["minute"]]
+	if bateria_ok and bateria >= 0:
+		estado += " · Batería: %d %%" % bateria
+	estado_lbl.text = estado
 	# ancho estable: solo crece (con el texto alineado a la derecha, encogerse lo haria saltar de lado)
 	ancho_fijo = maxf(ancho_fijo, ui.get_combined_minimum_size().x)
 	ui.custom_minimum_size.x = ancho_fijo
