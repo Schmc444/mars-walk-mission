@@ -43,6 +43,7 @@ Steam Frame). You pick a destination, the planner finds the safest path over the
 
 Useful flags (after `--`): `--patch=<folder>`, `--world=<folder>`, `--sol=<n>`, `--norover`, `--shot=out.png`
 (render one frame and exit), `--sin-pines` (hide the tall location pins, handy for renders).
+`--espejo` serves the headset view as MJPEG at `http://<device-ip>:8090/` so it can be projected from a browser (`--espejo-fps=N`, `--espejo-ancho=N`, `--espejo-puerto=N`).
 
 ## Repository map
 
