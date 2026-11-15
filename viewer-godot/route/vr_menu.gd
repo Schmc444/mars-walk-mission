@@ -82,11 +82,11 @@ func _open() -> void:
 	ui.menu_open = true
 	var head: Transform3D = core.cam.global_transform
 	var f := -head.basis.z
-	f.y = 0.0
+	f.y = clampf(f.y, -0.5, 0.5)
 	f = f.normalized() if f.length() > 0.01 else Vector3.FORWARD
 	panel = Node3D.new()
 	add_child(panel)
-	panel.global_transform = Transform3D(Basis.looking_at(f, Vector3.UP), head.origin + f * DIST + Vector3(0, -0.05, 0))
+	panel.global_transform = Transform3D(Basis.looking_at(f, Vector3.UP), head.origin + f * DIST)
 	_build()
 
 
