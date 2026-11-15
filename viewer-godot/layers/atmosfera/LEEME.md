@@ -30,6 +30,11 @@ Posición: en `layer.gd`, `PANEL_MARGEN_X` / `PANEL_MARGEN_Y` (pantalla, fracci�
 y `PANEL_VR_X`, `PANEL_VR_ARRIBA`, `PANEL_VR_DIST`, `PANEL_VR_GIRO` (VR, en metros y radianes). Subir los márgenes o bajar `PANEL_VR_X`
 lo acerca al centro de la vista.
 
+En VR el panel **no va pegado rígido a la cabeza**: con giros pequeños (menos de `PANEL_ZONA_MUERTA_GRADOS` = 6°) se queda quieto, y con
+giros mayores alcanza a la cabeza con un filtro de primer orden (`PANEL_SUAVIZADO_S` = 0.25 s de constante de tiempo). Solo se suaviza
+el giro; la posición sigue a la cabeza exacta (no se queda atrás en el rover). El ancho del panel solo crece, para que no salte al cambiar
+el texto. En VR el fondo es opaco: semitransparente, los colores HDR de las vistas se filtraban como una franja sobre el horizonte.
+
 ## Teclas
 
 | Tecla | Qué hace |

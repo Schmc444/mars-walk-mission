@@ -53,6 +53,10 @@ const PANEL_VR_X := 0.22
 const PANEL_VR_ARRIBA := 0.16
 const PANEL_VR_DIST := 0.95
 const PANEL_VR_GIRO := -0.22
+# Seguimiento suave del panel en VR: no se mueve con giros pequenios de la cabeza (zona muerta) y, cuando la cabeza
+# gira mas, la alcanza con un filtro de primer orden. Solo se suaviza el giro; la posicion sigue a la cabeza exacta.
+const PANEL_ZONA_MUERTA_GRADOS := 6.0
+const PANEL_SUAVIZADO_S := 0.25   # constante de tiempo (s); mas grande = mas lento y suave
 
 const VISTA_CALOR := 0
 const VISTA_RAD := 1
@@ -145,6 +149,11 @@ var canvas: CanvasLayer
 var vista_vr: SubViewport
 var panel_3d: MeshInstance3D
 var en_3d := false
+var panel_local := Transform3D.IDENTITY   # posicion del panel respecto a la cabeza
+var giro_suave := Quaternion.IDENTITY     # orientacion filtrada de la cabeza
+var giro_iniciado := false
+var siguiendo := false
+var ancho_fijo := 0.0                     # el panel solo crece de ancho (no salta al cambiar el texto)
 
 var _t_rem := 0.0
 var _t_ui := 0.0
@@ -325,6 +334,26 @@ func _process(delta: float) -> void:
 	if canvas and ver_panel:
 		var vs := get_viewport().get_visible_rect().size
 		ui.position = Vector2(vs.x * (1.0 - PANEL_MARGEN_X) - ui.size.x, vs.y * PANEL_MARGEN_Y)   # lateral derecho
+	if panel_3d and ver_panel:
+		_seguir_panel(delta)
+
+
+# Panel VR: orientacion filtrada con zona muerta. Dentro de la zona muerta no se mueve; fuera, se acerca a la cabeza con
+# q <- slerp(q, q_cabeza, 1 - e^(-dt/tau)) (filtro de un polo) hasta quedar a menos de 1 grado, y ahi se detiene.
+func _seguir_panel(delta: float) -> void:
+	var cab: Transform3D = core.cam.global_transform
+	var q_cab := cab.basis.get_rotation_quaternion()
+	if not giro_iniciado:
+		giro_suave = q_cab
+		giro_iniciado = true
+	var ang := rad_to_deg(giro_suave.angle_to(q_cab))
+	if ang > PANEL_ZONA_MUERTA_GRADOS:
+		siguiendo = true
+	if siguiendo:
+		giro_suave = giro_suave.slerp(q_cab, 1.0 - exp(-delta / PANEL_SUAVIZADO_S))
+		if ang < 1.0:
+			siguiendo = false
+	panel_3d.global_transform = Transform3D(Basis(giro_suave), cab.origin) * panel_local
 
 
 func _sol(p: Vector3) -> float:
@@ -626,7 +655,7 @@ func _llenar_audio() -> void:
 func _crear_panel() -> void:
 	ui = PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.02, 0.02, 0.04, 0.62)
+	sb.bg_color = Color(0.02, 0.02, 0.04, 0.85)       # casi opaco: el texto se lee sobre las vistas de colores brillantes
 	sb.set_corner_radius_all(6)
 	sb.set_content_margin_all(10)
 	ui.add_theme_stylebox_override("panel", sb)
@@ -642,6 +671,9 @@ func _crear_panel() -> void:
 	sonido_lbl.visible = false
 	vb.add_child(sonido_lbl)
 	if en_3d:
+		# en 3D el panel se mezcla antes del tonemapping: con fondo semitransparente, los colores HDR de las vistas
+		# se filtraban (franja de color sobre el horizonte). Fondo opaco; solo las esquinas redondeadas quedan transparentes.
+		sb.bg_color.a = 1.0
 		vista_vr = SubViewport.new()
 		vista_vr.transparent_bg = true
 		vista_vr.disable_3d = true
@@ -662,8 +694,9 @@ func _crear_panel() -> void:
 		panel_3d.material_override = pm
 		panel_3d.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		panel_3d.extra_cull_margin = 10.0
-		panel_3d.rotation = Vector3(0, PANEL_VR_GIRO, 0)       # mirando hacia el ojo
-		core.cam.add_child(panel_3d)
+		panel_3d.top_level = true                       # no va pegado a la camara: _seguir_panel lo mueve suave
+		add_child(panel_3d)
+		panel_local = Transform3D(Basis(Vector3.UP, PANEL_VR_GIRO), Vector3(PANEL_VR_X, PANEL_VR_ARRIBA - 0.08, -PANEL_VR_DIST))
 	else:
 		canvas = CanvasLayer.new()
 		canvas.layer = 5
@@ -688,7 +721,7 @@ func _label() -> Label:
 # Ajusta el tamanio del panel flotante (VR) al contenido: 1 px = 1 mm, a 1 m de los ojos, a la derecha.
 func _ajustar_panel_3d() -> void:
 	var tam := ui.get_combined_minimum_size()
-	var ancho := maxi(int(ceil(tam.x)), ANCHO_PANEL)
+	var ancho := maxi(int(ceil(maxf(tam.x, ancho_fijo))), ANCHO_PANEL)
 	var alto := maxi(int(ceil(tam.y)), 50)
 	if vista_vr.size_2d_override != Vector2i(ancho, alto):
 		vista_vr.size = Vector2i(ancho, alto) * 2          # el doble de pixeles para que se lea nitido en el visor
@@ -697,7 +730,7 @@ func _ajustar_panel_3d() -> void:
 		ui.size = Vector2(ancho, alto)
 	var k := 0.001
 	(panel_3d.mesh as QuadMesh).size = Vector2(ancho * k, alto * k)
-	panel_3d.position = Vector3(PANEL_VR_X, PANEL_VR_ARRIBA - alto * k * 0.5, -PANEL_VR_DIST)
+	panel_local = Transform3D(Basis(Vector3.UP, PANEL_VR_GIRO), Vector3(PANEL_VR_X, PANEL_VR_ARRIBA - alto * k * 0.5, -PANEL_VR_DIST))
 
 
 const COLOR_TEXTO := Color(0.95, 0.95, 0.92)
@@ -719,5 +752,8 @@ func _actualizar_panel() -> void:
 		valores_lbl[c].text = ("▶ " if c == activo else "") + textos[c]
 	if sonido_on:
 		sonido_lbl.text = "Sonido: %.0f Hz" % f_obj
+	# ancho estable: solo crece (con el texto alineado a la derecha, encogerse lo haria saltar de lado)
+	ancho_fijo = maxf(ancho_fijo, ui.get_combined_minimum_size().x)
+	ui.custom_minimum_size.x = ancho_fijo
 	if en_3d:
 		_ajustar_panel_3d.call_deferred()
