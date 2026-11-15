@@ -67,7 +67,8 @@ Useful flags (after `--`): `--patch=<folder>`, `--world=<folder>`, `--sol=<n>`, 
 
 ## Credits
 
-**Team (NASA Space Apps 2026, TEC Cartago):** Santiago Meneses, Sebastián Meneses, Paula, Daniela, Kevin.
+**Team (NASA Space Apps 2026, TEC Cartago):** Paula Ramírez Vilchez, Daniela Pacheco Naranjo, Sebastián Meneses Castillo,
+Kevin Bogantes Durán, Santiago Chacón Castillo.
 
 **Data:** USGS/JPL Mars 2020 TRN HiRISE and CTX mosaics; NASA/JPL MMGIS (waypoints, traverse); ESA HRSC + NASA MOLA blended
 DEM; Robbins CTX quad mosaics. **Audio:** NASA/JPL-Caltech SuperCam microphone recordings (details in
