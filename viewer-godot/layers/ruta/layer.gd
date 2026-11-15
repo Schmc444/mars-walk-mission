@@ -63,9 +63,9 @@ func setup(w: WorldStreamer, c: Node) -> void:
 			_rec_toggle.call_deferred()
 		if a.begins_with("--lever="):
 			lever = clampf(float(a.get_slice("=", 1)), -1.0, 1.0)
-	if play_data.is_empty() and core.left != null:
-		core.left.button_pressed.connect(func(n: String):
-			if n in ["trigger_click", "ax_button"]:
+	if play_data.is_empty() and core.right != null:
+		core.right.button_pressed.connect(func(n: String):
+			if n == "ax_button":
 				_rec_toggle())
 
 
@@ -344,9 +344,9 @@ func _rec_audio_stop() -> void:
 
 
 func _haptic(n: int) -> void:
-	if core.left != null:
+	if core.right != null:
 		for i in n:
-			core.left.trigger_haptic_pulse("haptic", 0.0, 1.0, 0.25, i * 0.35)
+			core.right.trigger_haptic_pulse("haptic", 0.0, 1.0, 0.25, i * 0.35)
 
 
 func _exit_tree() -> void:
