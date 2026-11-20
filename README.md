@@ -57,6 +57,13 @@ Useful flags (after `--`): `--patch=<folder>`, `--world=<folder>`, `--sol=<n>`, 
 
 `tools/frame/make_bundle.sh` builds a bundle for running the viewer natively on a Steam Frame.
 
+## A note on language
+
+The README and the user-facing docs are in English so the project can be read by the wider Space Apps community.
+The code was written by a Spanish-speaking team, so folder, layer and file names (`atmosfera`, `puntos_interes`,
+`ruta`, `EQUIPO.md`), code comments and commit messages are in Spanish. Each layer folder name is the layer name, and
+the team notes in `docs/` are in Spanish on purpose. If you contribute, either language is fine for issues and PRs.
+
 ## Honest status
 
 - Terrain shape and the distant crater and mountains are **real data**. Ground texture is real 25 cm orbital imagery
@@ -74,6 +81,9 @@ Kevin Bogantes Durán, Santiago Chacón Castillo.
 **Data:** USGS/JPL Mars 2020 TRN HiRISE and CTX mosaics; NASA/JPL MMGIS (waypoints, traverse); ESA HRSC + NASA MOLA blended
 DEM; Robbins CTX quad mosaics. **Audio:** NASA/JPL-Caltech SuperCam microphone recordings (details in
 `viewer-godot/audio/CREDITOS.md`). **Engine:** Godot (MIT).
+
+Each team member owns one layer under `viewer-godot/layers/` (see `docs/EQUIPO.md`); the git history shows who
+contributed what. Third-party assets keep their own credits (for example `viewer-godot/audio/CREDITOS.md`).
 
 ## License
 
