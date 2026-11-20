@@ -8,6 +8,8 @@ Steam Frame). You pick a destination, the planner finds the safest path over the
 
 ![status](https://img.shields.io/badge/status-hackathon_prototype-orange)
 
+**Demo video:** https://youtu.be/2VvJ5GXO3KE
+
 ## What it does
 
 - **Walkable Mars.** 1 m terrain and the distant crater rim and mountains come from real elevation data; the ground
